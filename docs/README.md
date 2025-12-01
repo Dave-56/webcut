@@ -15,84 +15,84 @@
   </a>
 </p>
 
-<p align="center">A powerful web video editing UI framework, empowering web applications to quickly integrate professional-grade video editing capabilities.</p>
+<p align="center">一个强大的 Web 视频编辑 UI 框架，助力 Web 应用快速集成专业级视频编辑能力。</p>
 
-## 📋 Table of Contents
+## 📋 目录
 
-- [Project Introduction](#project-introduction)
-- [Design Philosophy](#design-philosophy)
-- [Core Features](#core-features)
-- [Quick Examples](#quick-examples)
-- [Installation](#installation)
-- [Documentation](#documentation)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
+- [项目简介](#项目简介)
+- [设计理念](#设计理念)
+- [核心功能](#核心功能)
+- [快速示例](#快速示例)
+- [安装](#安装)
+- [文档](#文档)
+- [许可证](#许可证)
+- [致谢](#致谢)
 
-## Project Introduction
+## 项目简介
 
-WebCut is a video editing UI framework specifically designed for web applications. It provides intuitive canvas interface and comprehensive timeline tools, enabling developers to easily perform video editing, text/graphic overlay, element layout and transformation operations in the browser, and integrate them into their applications in a modular way.
+WebCut 是一款专为 Web 应用开发的视频编辑 UI 框架。它通过直观的画布界面与完善的时间线工具，让开发者可以在浏览器中轻松完成视频剪辑、文本/图形叠加、元素布局与变换等操作，并以模块化方式集成到自己的应用中。
 
 <p align="center">
-  🚀 Quick Integration · 🎨 Rich Features · 📱 Responsive Design · ⚡ High Performance Experience
+  🚀 快速集成 · 🎨 丰富功能 · 📱 响应式设计 · ⚡ 高性能体验
 </p>
 
-## Design Philosophy
+## 设计理念
 
-WebCut's core philosophy is "Complex Capabilities, Simple Usage". We believe that implementing professional-grade video editing on the web platform should not be a burden. Through componentized architecture and responsive APIs, developers can focus on creativity itself, rather than underlying details.
+WebCut 的核心理念是「复杂能力，简单使用」。我们相信在 Web 平台实现专业级视频编辑不应成为负担。通过组件化架构与响应式 API，开发者可以专注于创意本身，而不是底层细节。
 
-### Our Design Principles
+### 我们的设计原则
 
-| Principle | Description |
-|-----------|-------------|
-| 🎯 **User-First Design** | Intuitive interfaces and clear documentation, reducing learning costs |
-| ⚡ **Performance Optimization** | Optimized for browser environments to ensure smooth operation |
-| 🔧 **Extensibility** | Modular design for easy customization and feature extension |
-| 🛡️ **Type Safety** | Comprehensive TypeScript support to reduce development errors
+| 原则 | 描述 |
+|------|------|
+| 🎯 **易用性优先** | 直观接口与清晰文档，降低学习成本 |
+| ⚡ **性能优化** | 针对浏览器环境优化，确保流畅运行 |
+| 🔧 **可扩展性** | 模块化设计，便于定制和功能扩展 |
+| 🛡️ **类型安全** | 完备的 TypeScript 支持，减少开发错误
 
-## Core Features
+## 核心功能
 
-### Editing and Creation
+### 编辑与创作
 
-| Feature | Description |
-|---------|-------------|
-| 🎨 **Canvas Editing** | Intuitive canvas-based editing interface, what you see is what you get |
-| 🎬 **Player Control** | Play/pause, progress and volume control, supporting frame-level precise operations |
-| 📝 **Text Overlay** | Multi-style text addition and customization, supporting rich text effects |
-| ⏱️ **Timeline** | Precise timeline control, supporting scaling, positioning and clip management |
-| 🎛️ **Element Transformation** | Intuitive scaling, rotation and position adjustment, supporting precise value input |
+| 功能 | 描述 |
+|------|------|
+| 🎨 **画布编辑** | 基于 Canvas 的直观编辑界面，所见即所得 |
+| 🎬 **播放器控制** | 播放/暂停、进度与音量控制，支持帧级精确操作 |
+| 📝 **文本叠加** | 多样式文本添加与自定义，支持富文本效果 |
+| ⏱️ **时间线** | 精确的时间线控制，支持缩放、定位与片段管理 |
+| 🎛️ **元素变换** | 直观的缩放、旋转与位置调节，支持精确数值输入 |
 
-### Auxiliary Tools
+### 辅助工具
 
-| Feature | Description |
-|---------|-------------|
-| 📏 **Size Measurement** | Accurate text, video and image size calculation and control |
-| 🧰 **Utility Functions** | Export Blob, text-to-image conversion and other practical features |
-| 📱 **Responsive Design** | Adapt to different screen sizes, providing consistent editing experience |
+| 功能 | 描述 |
+|------|------|
+| 📏 **尺寸测量** | 精确的文本、视频与图像尺寸计算与控制 |
+| 🧰 **工具函数** | 导出 Blob、文本转图像等实用功能 |
+| 📱 **响应式设计** | 适配不同屏幕尺寸，提供一致的编辑体验 |
 
-### Project Showcase
+### 项目展示
 
-> *Project screenshots or demo videos can be placed here*
+> *这里可以放置项目截图或演示视频*
 
-## Quick Examples
+## 快速示例
 
-### Integration in Vue Project
+### 在 Vue 项目中集成
 
-The following example shows how to quickly integrate WebCut in a Vue project:
+以下示例展示如何在 Vue 项目中快速集成 WebCut：
 
 ```vue
 <script setup lang="ts">
-// Import core components and styles
+// 导入核心组件和样式
 import { WebCutEditor } from 'webcut';
 import 'webcut/esm/style.css';
 
-// Project ID (example)
+// 项目ID（示例）
 const yourProjectId = 'example-project';
 </script>
 
 <template>
   <div class="editor-container">
-    <h1>Video Editor</h1>
-    <!-- Use the complete editor component directly -->
+    <h1>视频编辑器</h1>
+    <!-- 直接使用完整编辑器组件 -->
     <WebCutEditor :project-id="yourProjectId" />
   </div>
 </template>
@@ -107,58 +107,58 @@ const yourProjectId = 'example-project';
 </style>
 ```
 
-> **Tip**: The above code will render a complete video editing interface, including video canvas, toolbar and timeline. You can also import components and tools from `webcut` as needed for customization.
+> **提示**：上述代码将渲染一个完整的视频编辑界面，包括视频画布、工具栏与时间线。你也可以按需从 `webcut` 引入组件与工具进行定制。
 
-## Installation
+## 安装
 
-WebCut supports installation via multiple package managers:
+WebCut 支持多种包管理器安装方式：
 
 ```bash
-# Using npm
+# 使用 npm
 npm install webcut
 
-# Using yarn
+# 使用 yarn
 yarn add webcut
 
-# Using pnpm
+# 使用 pnpm
 pnpm add webcut
 ```
 
-> **Note**: WebCut currently supports modern browser environments. Before use, please ensure that your project has configured the necessary polyfills (if supporting older browsers is required).
+> **注意**：WebCut 目前支持现代浏览器环境，在使用前请确保您的项目已配置好必要的 polyfill（如需支持旧浏览器）。
 
-## Documentation
+## 文档
 
-WebCut provides detailed documentation to help you get started quickly:
+WebCut 提供了详细的文档支持，帮助你快速上手：
 
-- **API Documentation**: Located in `docs/api.md` and `docs/zh-cn/api.md`
-- **Component Documentation**: Detailed component usage instructions
-- **Quick Start Guide**: Helping new users get started quickly
-- **FAQ**: Solutions and best practices
+- **API 文档**：位于 `docs/api.md` 和 `docs/zh-cn/api.md`
+- **组件文档**：详细的组件使用说明
+- **快速入门指南**：帮助新用户快速上手
+- **常见问题**：解决方案与最佳实践
 
-> For online documentation, please visit our documentation site.
+> 如需在线查看文档，请访问我们的文档站点。
 
-## License
+## 许可证
 
-This project is licensed under the **MIT License**, allowing free use, modification, and distribution. See the <mcfile name="LICENSE" path="/Users/frustigor/dev/webcut/LICENSE"></mcfile> file for details.
+本项目采用 **MIT 许可证**，允许自由使用、修改和分发。详见 <mcfile name="LICENSE" path="/Users/frustigor/dev/webcut/LICENSE"></mcfile> 文件。
 
-## Acknowledgements
+## 致谢
 
-WebCut's development would not be possible without the support of the following excellent open-source projects:
+WebCut 的开发离不开以下优秀开源项目的支持：
 
-### Core Dependencies
+### 核心依赖
 
-- [@webav/av-canvas](https://github.com/bilibili/webav/tree/main/packages/av-canvas) - Provides underlying video rendering capabilities
-- [@webav/av-cliper](https://github.com/bilibili/webav/tree/main/packages/av-cliper) - Supports video editing functionality
-- [Vue 3](https://vuejs.org/) - Responsive frontend framework
+- [@webav/av-canvas](https://github.com/bilibili/webav/tree/main/packages/av-canvas) - 提供底层视频渲染能力
+- [@webav/av-cliper](https://github.com/bilibili/webav/tree/main/packages/av-cliper) - 视频剪辑功能支持
+- [Vue 3](https://vuejs.org/) - 响应式前端框架
 
-### Development Tools
+### 开发工具
 
-- [TypeScript](https://www.typescriptlang.org/) - Type system support
-- [naive-ui](https://www.naiveui.com/) - UI component library
-- [@vicons](https://vicons.mono.company/) - Icon library
+- [TypeScript](https://www.typescriptlang.org/) - 类型系统支持
+- [naive-ui](https://www.naiveui.com/) - UI组件库
+- [@vicons](https://vicons.mono.company/) - 图标库
 
-Thank you to the contributors of these projects for their efforts to the open-source community!
+感谢这些项目的贡献者为开源社区做出的努力！
 
 ---
 
-> **Tip**: If you like this project, please give us a ⭐️ support!
+> **提示**：如果你喜欢这个项目，请给我们一个 ⭐️ 支持！
