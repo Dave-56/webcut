@@ -1,4 +1,4 @@
-![logo](webcut.png)
+![logo](../webcut.png)
 
 # WebCut <small>Documentation</small>
 
@@ -9,5 +9,6 @@
 - Rich element transformation capabilities
 - Modular component design
 
+[Official Website](https://webcut.top)
 [GitHub](https://github.com/tangshuang/webcut)
 [Get Started](#webcut-documentation)

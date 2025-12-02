@@ -7,11 +7,11 @@
   <a href="https://www.npmjs.com/package/webcut">
     <img src="https://img.shields.io/npm/v/webcut.svg?style=flat-square" alt="npm version" />
   </a>
-  <a href="https://github.com/yourusername/webcut/blob/main/LICENSE">
+  <a href="https://github.com/tangshuang/webcut/blob/main/LICENSE">
     <img src="https://img.shields.io/npm/l/webcut.svg?style=flat-square" alt="license" />
   </a>
-  <a href="https://github.com/yourusername/webcut">
-    <img src="https://img.shields.io/github/stars/yourusername/webcut.svg?style=flat-square" alt="GitHub stars" />
+  <a href="https://github.com/tangshuang/webcut">
+    <img src="https://img.shields.io/github/stars/tangshuang/webcut.svg?style=flat-square" alt="GitHub stars" />
   </a>
 </p>
 
