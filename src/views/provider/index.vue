@@ -43,8 +43,8 @@ const colors = computed<WebCutColors>(() => assignNotEmpty({
   backgroundColorDark: '#222222',
   greyColor: '#ccc',
   greyColorDark: '#444',
-  greyDeepColor: '#ddd',
-  greyDeepColorDark: '#222',
+  greyDeepColor: '#eee',
+  greyDeepColorDark: '#2e2e2e',
   railBgColor: '#f5f5f5',
   railBgColorDark: '#1f1f1f',
   railHoverBgColor: 'rgba(126, 151, 144, 0.2)',
@@ -150,7 +150,7 @@ const dateLngPkg = computed(() => {
                             <n-element>
                                 <n-notification-provider placement="bottom-right">
                                     <div class="webcut-container" :style="{
-                                        '--webcut-grey-color': isDarkMode ? colors.greyDeepColorDark : colors.greyColor,
+                                        '--webcut-grey-color': isDarkMode ? colors.greyColorDark : colors.greyColor,
                                         '--webcut-grey-deep-color': isDarkMode ? colors.greyDeepColorDark : colors.greyDeepColor,
                                         '--webcut-rail-bg-color': isDarkMode ? colors.railBgColorDark : colors.railBgColor,
                                         '--webcut-rail-hover-bg-color': isDarkMode ? colors.railHoverBgColorDark : colors.railHoverBgColor,
