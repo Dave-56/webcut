@@ -20,6 +20,7 @@ import WebCutTextPanel from './views/panel/text/index.vue';
 import WebCutBasicPanel from './views/panel/basic/index.vue';
 import WebCutEditor from './views/editor/index.vue';
 import WebCutTimeClock from './views/time-clock/index.vue';
+import WebCutExportButton from './views/export-button/index.vue';
 
 import WebCutThemeSwitch from './views/dark-mode/theme-switch.vue';
 import AdjustableBox from './components/adjustable-box/index.vue';
@@ -53,6 +54,7 @@ export {
     WebCutTextPanel,
     WebCutBasicPanel,
     WebCutThemeSwitch,
+    WebCutExportButton,
 
     AdjustableBox,
     AudioShape,

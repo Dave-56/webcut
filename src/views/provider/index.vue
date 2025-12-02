@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { WebCutContext } from '../../types';
+import { WebCutContext, WebCutColors } from '../../types';
 import { useWebCutContext } from '../../hooks';
 import { useDarkMode } from '../../views/dark-mode/hooks';
 import {
@@ -17,111 +17,130 @@ import {
     dateZhTW,
     GlobalThemeOverrides,
 } from 'naive-ui';
-import { computed } from 'vue';
+import { computed, provide as provideRoot } from 'vue';
+import { assignNotEmpty } from '../../libs/object';
 
-const props = defineProps<{ data?: Partial<WebCutContext> }>();
+interface WebCutProviderProps {
+    data?: Partial<WebCutContext>;
+    colors?: Partial<WebCutColors>;
+}
+
+const props = defineProps<WebCutProviderProps>();
+const colors = computed<WebCutColors>(() => assignNotEmpty({
+  baseColor: '#222222',
+  baseColorDark: '#1a1a1a',
+  primaryColor: '#00b4a2',
+  primaryColorHover: '#01a595',
+  primaryColorPressed: '#009d8d',
+  primaryColorSuppl: '#009586',
+
+  textColor: '#000000',
+  textColorHover: '#01a595',
+  textColorDark: '#ffffff',
+  textColorDarkHover: '#eeeeee',
+
+  backgroundColor: 'transparent',
+  backgroundColorDark: '#222222',
+  greyColor: '#ccc',
+  greyColorDark: '#444',
+  greyDeepColor: '#ddd',
+  greyDeepColorDark: '#222',
+  railBgColor: '#f5f5f5',
+  railBgColorDark: '#1f1f1f',
+  railHoverBgColor: 'rgba(126, 151, 144, 0.2)',
+  railHoverBgColorDark: 'rgba(114, 251, 210, 0.2)',
+  lineColor: '#eee',
+  lineColorDark: '#000',
+  thumbColor: '#eee',
+  thumbColorDark: '#444',
+  managerTopBarColor: '#f0f0f0',
+  managerTopBarColorDark: '#222',
+}, props.colors || {}));
+
+provideRoot('WEBCUT_COLORS', colors);
+
 if (props.data) {
     const { provide } = useWebCutContext(props.data);
     provide();
 }
 
-const BASE_COLOR_DARK = '#1a1a1a';
-const THEME_COLOR = '#2196F3';
-const THEME_COLOR_HOVER = '#1976D2';
-const THEME_COLOR_PRESSED = '#1565C0';
-const THEME_COLOR_SUPPLEMENTARY = '#BBDEFB';
-const BADGE_COLOR_DARK = '#000000';
-const TEXT_COLOR = '#000000';
-const TEXT_COLOR_DARK = '#FFFFFF';
-
 const isDarkMode = useDarkMode();
-const darkOverrides: GlobalThemeOverrides = {
+const darkOverrides = computed<GlobalThemeOverrides>(() => ({
     common: {
-        primaryColor: THEME_COLOR,
-        primaryColorHover: THEME_COLOR_HOVER,
-        primaryColorPressed: THEME_COLOR_PRESSED,
-        primaryColorSuppl: THEME_COLOR_SUPPLEMENTARY,
-        baseColor: BASE_COLOR_DARK,
-    },
-    Button: {
-        textColor: TEXT_COLOR_DARK,
-        textColorHover: TEXT_COLOR_DARK,
+        primaryColor: colors.value.primaryColor,
+        primaryColorHover: colors.value.primaryColorHover,
+        primaryColorPressed: colors.value.primaryColorPressed,
+        primaryColorSuppl: colors.value.primaryColorSuppl,
     },
     Switch: {
-        railColorActive: THEME_COLOR,
+        railColorActive: colors.value.primaryColor,
     },
     Message: {
-        iconColorSuccess: THEME_COLOR,
+        iconColorSuccess: colors.value.primaryColor,
     },
     Select: {
         peers: {
             InternalSelection: {
-                textColor: TEXT_COLOR_DARK,
-                // @ts-ignore
-                textColorHover: TEXT_COLOR_DARK,
+                textColor: colors.value.textColorDark,
+                textColorHover: colors.value.textColorDarkHover,
             },
         },
     },
     Badge: {
-        color: BADGE_COLOR_DARK,
+        color: colors.value.primaryColorSuppl,
     },
-};
-const lightOverrides: GlobalThemeOverrides = {
+}));
+const lightOverrides = computed<GlobalThemeOverrides>(() => ({
     common: {
-        primaryColor: THEME_COLOR,
-        primaryColorHover: THEME_COLOR_HOVER,
-        primaryColorPressed: THEME_COLOR_PRESSED,
-        primaryColorSuppl: THEME_COLOR_SUPPLEMENTARY,
-        baseColor: import.meta.env.BASE_COLOR,
-    },
-    Button: {
-        textColor: TEXT_COLOR,
-        textColorHover: TEXT_COLOR,
+        primaryColor: colors.value.primaryColor,
+        primaryColorHover: colors.value.primaryColorHover,
+        primaryColorPressed: colors.value.primaryColorPressed,
+        primaryColorSuppl: colors.value.primaryColorSuppl,
     },
     Switch: {
-        railColorActive: THEME_COLOR,
+        railColorActive: colors.value.primaryColor,
     },
     Message: {
-        iconColorSuccess: THEME_COLOR,
+        iconColorSuccess: colors.value.primaryColor,
     },
     Select: {
         peers: {
             InternalSelection: {
-                textColor: TEXT_COLOR,
+                textColor: colors.value.textColor,
                 // @ts-ignore
-                textColorHover: TEXT_COLOR,
+                textColorHover: colors.value.textColorHover,
             },
         },
     },
     Badge: {
-        color: BADGE_COLOR_DARK,
+        color: colors.value.primaryColorSuppl,
     },
-};
+}));
 const theme = computed(() => isDarkMode.value ? darkTheme : undefined);
-const overrides = computed(() => isDarkMode.value ? darkOverrides : lightOverrides);
+const overrides = computed(() => isDarkMode.value ? darkOverrides.value : lightOverrides.value);
 
-const lang = navigator.language;
+const lang = computed(() => props.data?.language || navigator.language);
 const lngPkg = computed(() => {
-    if (lang === 'zh-CN') {
-        return zhCN;
-    }
-    if (lang === 'zh-HK') {
+    if (['zh-HK', 'zh-TW'].includes(lang.value)) {
         return zhTW;
+    }
+    if (lang.value.indexOf('zh-') === 0) {
+        return zhCN;
     }
 });
 const dateLngPkg = computed(() => {
-    if (lang === 'zh-CN') {
-        return dateZhCN;
-    }
-    if (lang === 'zh-HK') {
+    if (['zh-HK', 'zh-TW'].includes(lang.value)) {
         return dateZhTW;
+    }
+    if (lang.value.indexOf('zh-') === 0) {
+        return dateZhCN;
     }
 });
 </script>
 
 <template>
     <div class="webcut-root" :style="{
-        '--background-color': isDarkMode ? BASE_COLOR_DARK : 'transparent',
+        '--background-color': isDarkMode ? colors.backgroundColorDark : colors.backgroundColor,
     }">
         <n-config-provider :theme="theme" :theme-overrides="overrides" :locale="lngPkg" :date-locale="dateLngPkg">
             <n-loading-bar-provider>
@@ -131,12 +150,13 @@ const dateLngPkg = computed(() => {
                             <n-element>
                                 <n-notification-provider placement="bottom-right">
                                     <div class="webcut-container" :style="{
-                                        '--webcut-grey-color': isDarkMode ? '#444' : '#ccc',
-                                        '--webcut-grey-deep-color': isDarkMode ? '#222' : '#ddd',
-                                        '--webcut-rail-bg-color': isDarkMode ? '#1f1f1f' : '#f5f5f5',
-                                        '--webcut-line-color': isDarkMode ? '#000' : '#eee',
-                                        '--webcut-thumb-color': isDarkMode ? '#444' : '#eee',
-                                        '--webcut-manager-top-bar-color': isDarkMode ? '#222' : '#f0f0f0',
+                                        '--webcut-grey-color': isDarkMode ? colors.greyDeepColorDark : colors.greyColor,
+                                        '--webcut-grey-deep-color': isDarkMode ? colors.greyDeepColorDark : colors.greyDeepColor,
+                                        '--webcut-rail-bg-color': isDarkMode ? colors.railBgColorDark : colors.railBgColor,
+                                        '--webcut-rail-hover-bg-color': isDarkMode ? colors.railHoverBgColorDark : colors.railHoverBgColor,
+                                        '--webcut-line-color': isDarkMode ? colors.lineColorDark : colors.lineColor,
+                                        '--webcut-thumb-color': isDarkMode ? colors.thumbColorDark : colors.thumbColor,
+                                        '--webcut-manager-top-bar-color': isDarkMode ? colors.managerTopBarColorDark : colors.managerTopBarColor,
                                         '--small-form-font-size': '10px',
                                         '--small-form-font-size-tiny': '8px',
                                     }">

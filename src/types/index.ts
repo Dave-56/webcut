@@ -31,6 +31,8 @@ export type WebCutContext = {
     // 当结束停止时，自动reset为第一帧
     autoResetWhenStop: boolean;
 
+    language: string;
+
     // 帧率
     fps: number;
 
@@ -220,3 +222,35 @@ export type HistoryState =
         // 被修改前素材的元数据，恢复时，需要根据该元数据，重新添加素材
         materialMeta: Record<string, any>;
     };
+
+export interface WebCutColors {
+    baseColor: string,
+    baseColorDark: string,
+    primaryColor: string,
+    primaryColorHover: string,
+    primaryColorPressed: string,
+    primaryColorSuppl: string,
+    textColor: string,
+    textColorHover: string,
+    textColorDark: string,
+    textColorDarkHover: string,
+
+    backgroundColor: string,
+    backgroundColorDark: string,
+    greyColor: string,
+    greyColorDark: string,
+    greyDeepColor: string,
+    greyDeepColorDark: string,
+    railBgColor: string,
+    railBgColorDark: string,
+    /** 轨道悬停颜色 */
+    railHoverBgColor: string,
+    /** 轨道悬停颜色（暗色主题） */
+    railHoverBgColorDark: string,
+    lineColor: string,
+    lineColorDark: string,
+    thumbColor: string,
+    thumbColorDark: string,
+    managerTopBarColor: string,
+    managerTopBarColorDark: string,
+}

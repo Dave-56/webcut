@@ -510,7 +510,7 @@ manager.value = exposes;
     transition: all 0.2s ease;
 }
 .webcute__manager__main__rail--highlighted {
-    background-color: rgba(100, 181, 246, 0.2);
+    background-color: var(--webcut-rail-hover-bg-color);
 }
 .webcute__manager__main__rail--locked::after {
     content: '';
@@ -575,7 +575,7 @@ manager.value = exposes;
     bottom: 0;
     border-radius: 6px;
     z-index: 10;
-    border: 4px solid var(--primary-color);
+    border: 3px solid var(--primary-color);
     pointer-events: none;
 }
 .webcut__mananger__aside__list {

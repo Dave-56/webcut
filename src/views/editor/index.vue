@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { NIcon, NButton, NSplit } from 'naive-ui';
-import { Video, Export, Music, Image, StringText, Locked, Unlocked, View, ViewOff, VolumeMute, VolumeUp } from '@vicons/carbon';
+import { NIcon, NSplit } from 'naive-ui';
+import { Video, Music, Image, StringText, Locked, Unlocked, View, ViewOff, VolumeMute, VolumeUp } from '@vicons/carbon';
 import WebCutProvider from '../provider/index.vue';
 import WebCutPlayerScreen from '../player/screen.vue';
 import WebCutPlayerButton from '../player/button.vue';
@@ -8,7 +8,6 @@ import WebCutManager from '../manager/index.vue';
 import WebCutManagerScaler from '../manager/scaler/index.vue';
 import { useWebCutContext, useWebCutPlayer } from '../../hooks';
 import ThemeSwitch from '../../views/dark-mode/theme-switch.vue';
-import { useT } from '../../libs/i18n';
 import WebCutSelectAspectRatio from '../select-aspect-ratio/index.vue';
 import WebCutTimeClock from '../time-clock/index.vue';
 import WebCutLibrary from '../library/index.vue';
@@ -26,17 +25,20 @@ import SplitKeepRight from '../tools/split-keep-right/index.vue';
 // import Undo from '../tools/undo/index.vue';
 // import Redo from '../tools/redo/index.vue';
 import Panel from '../panel/index.vue';
+import ExportButton from '../export-button/index.vue';
+import { WebCutColors } from '../../types';
 
 const props = defineProps<{
     projectId?: string;
+    colors?: Partial<WebCutColors>;
 }>();
 
-const { sprites } = useWebCutContext({
+useWebCutContext({
     id: props.projectId,
 });
-const { download, resize } = useWebCutPlayer();
+
+const { resize } = useWebCutPlayer();
 const { resizeManagerMaxHeight, toggleRailHidden, toggleRailMute } = useWebCutManager();
-const t = useT();
 const bottomSide = ref();
 
 function handleResized() {
@@ -53,7 +55,7 @@ function handleToggleLocked(rail: any) {
 </script>
 
 <template>
-    <WebCutProvider>
+    <WebCutProvider :colors="props.colors">
         <div class="webcut-editor">
             <n-split direction="vertical" :default-size="0.8" min="400px" :max="0.8" @update:size="handleResized">
                 <template #1>
@@ -84,12 +86,7 @@ function handleToggleLocked(rail: any) {
                                         <div class="webcut-editor-right-side-top-bar">
                                             <ThemeSwitch></ThemeSwitch>
                                             <span style="margin: auto;"></span>
-                                            <n-button type="primary" size="tiny" @click="download()" :disabled="sprites.length === 0" class="webcut-editor-right-side-top-bar-export-button">
-                                                <template #icon>
-                                                    <n-icon><Export /></n-icon>
-                                                </template>
-                                                {{ t('Export') }}
-                                            </n-button>
+                                            <ExportButton></ExportButton>
                                         </div>
                                         <div class="webcut-editor-right-side-main">
                                             <Panel></Panel>

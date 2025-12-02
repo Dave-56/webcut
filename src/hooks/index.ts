@@ -42,6 +42,7 @@ export function useWebCutContext(providedContext?: Partial<WebCutContext>) {
         current: null,
         canUndo: false,
         canRedo: false,
+        language: navigator.language,
     };
     if (providedContext) {
         const next = assignToEmptyOnly(providedContext || {}, defaultContext);
@@ -837,4 +838,8 @@ export function useWebCutData() {
     return {
         replaceClips,
     };
+}
+
+export function useWebCutColors() {
+    return inject('WEBCUT_COLORS');
 }
