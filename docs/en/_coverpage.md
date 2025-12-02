@@ -9,6 +9,6 @@
 - Rich element transformation capabilities
 - Modular component design
 
-[Official Website](https://webcut.top)
+[Official Website](https://webcut.top?lang=en-US)
 [GitHub](https://github.com/tangshuang/webcut)
 [Get Started](#webcut-documentation)
