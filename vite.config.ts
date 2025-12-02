@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import dts from 'vite-plugin-dts';
-import { resolve } from 'path';
-import path from 'path';
+import { resolve, dirname } from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkgPath = path.resolve(__dirname, 'package.json');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkgPath = resolve(__dirname, 'package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
 const allDependencies = [
   ...Object.keys(pkg.dependencies || {}),
@@ -16,29 +15,40 @@ const allDependencies = [
   ...Object.keys(pkg.optionalDependencies || {}),
 ];
 
-// https://vitejs.dev/config/
+// 根据环境变量选择构建配置
+const buildType = process.env.BUILD_TYPE;
+
+// 导出配置
 export default defineConfig({
   plugins: [
     vue(),
-    dts({
+    buildType !== 'webcomponents' ? dts({
       insertTypesEntry: true,
       cleanVueFileName: true,
-      copyDtsFiles: true,
+      copyDtsFiles: false,
       include: ['src/**/*'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/**/*.md'],
-    }),
-  ],
+      exclude: [
+        'src/**/*.test.ts', 'src/**/*.spec.ts', 'src/**/*.md',
+        'src/webcomponents.ts',
+      ],
+    }) : undefined,
+  ].filter(Boolean),
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: buildType === 'webcomponents' ? resolve(__dirname, 'src/webcomponents.ts') : resolve(__dirname, 'src/index.ts'),
       name: 'WebCut',
-      fileName: (format, entryName) => `${entryName}.js`,
-      formats: ['es'],
-    },
-    rollupOptions: {
-      external: allDependencies,
+      fileName: () => 'index.js',
+      formats: [buildType === 'webcomponents' ? 'iife' : 'es'],
     },
     sourcemap: true,
-    outDir: 'esm',
+    minify: false,
+    outDir: buildType === 'webcomponents' ? 'webcomponents' : 'esm',
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
+    rollupOptions: {
+      external: buildType === 'webcomponents' ? [] : allDependencies,
+    },
   },
 });
+

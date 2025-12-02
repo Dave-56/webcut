@@ -5,8 +5,10 @@
   "main": "esm/index.js",
   "module": "esm/index.js",
   "types": "esm/index.d.ts",
+  "webcomponents": "webcomponents/index.js",
   "files": [
     "esm",
+    "webcomponents",
     "src"
   ],
   "repository": {
@@ -20,7 +22,9 @@
   "scripts": {
     "docs": "docsify serve docs",
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:esm && npm run build:webcomponents",
+    "build:esm": "vite build",
+    "build:webcomponents": "BUILD_TYPE=webcomponents BUILD_ENTRY_DIR=src/webcomponents/editor vite build",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix",

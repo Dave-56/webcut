@@ -20,7 +20,7 @@ import {
 import { computed, provide as provideRoot } from 'vue';
 import { assignNotEmpty } from '../../libs/object';
 
-interface WebCutProviderProps {
+export interface WebCutProviderProps {
     data?: Partial<WebCutContext>;
     colors?: Partial<WebCutColors>;
 }

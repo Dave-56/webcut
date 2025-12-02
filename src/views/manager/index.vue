@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="T extends WebCutRail">
+<script setup lang="ts">
 import { onMounted, useSlots } from 'vue';
 import ScrollBox from '../../components/scroll-box/index.vue';
 import { ref, watch, nextTick } from 'vue';
@@ -15,10 +15,7 @@ import { NIcon } from 'naive-ui';
 import { useT } from '../../libs/i18n';
 import { useWebCutContext } from '../../hooks';
 
-const emit = defineEmits(['sort', 'resize']);
-/** 最大高度，默认240，注意，包含了topbar，topbar高度为20，还包含topbar和轨道之间的gap，gap为4 */
-const maxHeight = defineModel<number>('maxHeight', { default: 264 });
-const props = defineProps<{
+export type WebCutManagerProps = {
     topBarColor?: string;
     railBgColor?: string;
     segmentBgColor?: string;
@@ -35,7 +32,12 @@ const props = defineProps<{
     disableSort?: boolean;
     /** 禁用尺寸调整 */
     disableResize?: boolean;
-}>();
+};
+
+const emit = defineEmits(['sort', 'resize']);
+/** 最大高度，默认240，注意，包含了topbar，topbar高度为20，还包含topbar和轨道之间的gap，gap为4 */
+const maxHeight = defineModel<number>('maxHeight', { default: 264 });
+const props = defineProps<WebCutManagerProps>();
 
 const { rails, manager, selected, current, toggleSegment } = useWebCutContext();
 const slots = useSlots();

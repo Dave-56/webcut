@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NIcon, useThemeVars } from 'naive-ui';
+import { NButton, NIcon } from 'naive-ui';
 import { Export } from '@vicons/carbon';
 import { useWebCutContext, useWebCutPlayer } from '../../hooks';
 import { useT } from '../../libs/i18n';
@@ -7,9 +7,6 @@ import { useT } from '../../libs/i18n';
 const { download } = useWebCutPlayer();
 const { sprites } = useWebCutContext();
 const t = useT();
-
-const themeVars = useThemeVars();
-console.debug(themeVars)
 </script>
 
 <template>
