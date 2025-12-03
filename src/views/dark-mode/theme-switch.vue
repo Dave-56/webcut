@@ -2,7 +2,19 @@
 import { NIcon, NSwitch } from 'naive-ui';
 import { useWebCutDarkMode } from './hooks';
 import { WeatherMoon16Regular, WeatherSunny16Regular } from '@vicons/fluent';
+import { watch } from 'vue';
+
 const isDarkMode = useWebCutDarkMode();
+const darkMode = defineModel<boolean>('isDarkMode', { default: isDarkMode.value });
+
+watch(darkMode, (newValue) => {
+    if (typeof newValue === 'boolean' && newValue !== isDarkMode.value) {
+        isDarkMode.value = newValue;
+    }
+}, { immediate: true });
+watch(isDarkMode, (newValue) => {
+    darkMode.value = newValue;
+});
 </script>
 
 <template>

@@ -29,13 +29,13 @@ import ExportButton from '../export-button/index.vue';
 import { WebCutColors } from '../../types';
 import { useWebCutDarkMode } from '../dark-mode/hooks';
 
+/** 是否为暗黑模式 */
+const darkMode = defineModel<boolean>('isDarkMode', { default: false });
 const props = defineProps<{
     projectId?: string;
     colors?: Partial<WebCutColors>;
     /** 是否禁用顶部右侧栏 */
     disableTopRightBar?: boolean;
-    /** 是否为暗黑模式 */
-    isDarkMode?: boolean;
 }>();
 
 useWebCutContext(() => props.projectId ? { id: props.projectId } : undefined);
@@ -55,11 +55,14 @@ function handleResized() {
 
 onMounted(handleResized);
 
-watch(() => props.isDarkMode, (newValue) => {
-    if (typeof newValue === 'boolean') {
+watch(darkMode, (newValue) => {
+    if (typeof newValue === 'boolean' && newValue !== isDarkMode.value) {
         isDarkMode.value = newValue;
     }
 }, { immediate: true });
+watch(isDarkMode, (newValue) => {
+    darkMode.value = newValue;
+});
 
 function handleToggleLocked(rail: any) {
     rail.locked = !rail.locked;
