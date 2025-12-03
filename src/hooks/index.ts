@@ -1,5 +1,5 @@
-import { inject, toRefs, markRaw, reactive, provide, watch, ref, watchEffect, computed } from 'vue';
-import { WebCutContext } from '../types';
+import { inject, toRefs, markRaw, reactive, provide, watch, ref, watchEffect, computed, type ComputedRef } from 'vue';
+import { WebCutColors, WebCutContext } from '../types';
 import { AVCanvas } from '@webav/av-canvas';
 import {
   AudioClip,
@@ -8,7 +8,7 @@ import {
   VisibleSprite,
 } from '@webav/av-cliper';
 import { base64ToFile, downloadBlob } from '../libs/file';
-import { assignNotEmpty, assignToEmptyOnly } from '../libs/object';
+import { assignNotEmpty } from '../libs/object';
 import { isEmpty, createRandomString, clone, assign } from 'ts-fns';
 import { mp4BlobToWavBlob, renderTxt2ImgBitmap } from '../libs';
 import { WebCutTextHighlight, WebCutPushMeta } from '../types';
@@ -16,8 +16,8 @@ import { autoFitRect, measureVideoSize, measureImageSize } from '../libs';
 import { readFile, writeFile } from '../db';
 
 let context: WebCutContext | null | undefined = null;
-export function useWebCutContext(providedContext?: Partial<WebCutContext>) {
-    const defaultContext = {
+export function useWebCutContext(providedContext?: () => Partial<WebCutContext> | undefined | null) {
+    const defaultContext: WebCutContext = {
         id: 'default',
         width: 1440,
         height: 1080,
@@ -43,14 +43,18 @@ export function useWebCutContext(providedContext?: Partial<WebCutContext>) {
         canUndo: false,
         canRedo: false,
         language: navigator.language,
+        perfersColorScheme: window.matchMedia(' (prefers-color-scheme: dark)').matches ? 'dark' : 'light',
     };
-    if (providedContext) {
-        const next = assignToEmptyOnly(providedContext || {}, defaultContext);
+
+    const providedContextValue = providedContext?.();
+    if (providedContextValue) {
+        const next = { ...defaultContext, ...providedContextValue };
+        // @ts-ignore
         context = reactive(next);
     }
     if (!context) {
         // @ts-ignore
-        context = inject('VIDEO_CANVAS_CONTEXT', null);
+        context = inject('WEBCUT_CONTEXT', null);
     }
     if (!context) {
         // 如果没有找到上下文，创建一个默认的
@@ -58,15 +62,18 @@ export function useWebCutContext(providedContext?: Partial<WebCutContext>) {
         context = reactive(defaultContext);
     }
     const refs = toRefs(context!);
+
+    // 在重置之前保存起来
     const finalContext = context;
     // 当在最顶层使用useWebCutContext时，可以立即使用useWebCutPlayer, useWebCutData，它们共享一个context
     setTimeout(() => {
         context = null;
     }, 0);
 
+    const { sprites, status, cursorTime, fps, selected, current, rails, sources } = refs;
+
     // 总时长，纳秒，1000*1000=1秒
     const duration = ref(0);
-    const { sprites, status, cursorTime, fps, selected, current, rails, sources } = refs;
     const updateDuration = async () => {
         if (!sprites.value.length) {
             duration.value = 0;
@@ -93,7 +100,7 @@ export function useWebCutContext(providedContext?: Partial<WebCutContext>) {
     };
     watchEffect(updateDuration);
 
-    provide('VIDEO_CANVAS_CONTEXT', finalContext);
+    provide('WEBCUT_CONTEXT', finalContext);
 
     function toggleSegment(segmentId: string, railId: string) {
         const index = selected.value.findIndex(i => i.segmentId === segmentId && i.railId === railId);
@@ -180,7 +187,7 @@ export function useWebCutContext(providedContext?: Partial<WebCutContext>) {
         // 由于duration是通过sprite计算的，而sprite不是reactive对象，所以，我们在外部修改sprite后，需要调用updateDuration来更新duration
         updateDuration,
         // 导出该函数，在使用pinia进行全局共享时，需要在顶层组件内调用该方法，否则页面切换就无法提供context
-        provide: () => provide('VIDEO_CANVAS_CONTEXT', finalContext),
+        provide: () => provide('WEBCUT_CONTEXT', finalContext),
         toggleSegment,
         selectSegment,
         unselectSegment,
@@ -840,6 +847,48 @@ export function useWebCutData() {
     };
 }
 
-export function useWebCutColors() {
-    return inject('WEBCUT_COLORS');
+export function useWebCutThemeColors(provideColors?: () => Partial<WebCutColors> | undefined | null) {
+    const defaultColors = {
+        primaryColor: '#00b4a2',
+        primaryColorHover: '#01a595',
+        primaryColorPressed: '#009d8d',
+        primaryColorSuppl: '#009586',
+
+        textColor: '#000000',
+        textColorHover: '#01a595',
+        textColorDark: '#ffffff',
+        textColorDarkHover: '#eeeeee',
+
+        backgroundColor: 'transparent',
+        backgroundColorDark: '#222222',
+        greyColor: '#ccc',
+        greyColorDark: '#444',
+        greyDeepColor: '#eee',
+        greyDeepColorDark: '#2e2e2e',
+        railBgColor: '#f5f5f5',
+        railBgColorDark: '#1f1f1f',
+        railHoverBgColor: 'rgba(126, 151, 144, 0.2)',
+        railHoverBgColorDark: 'rgba(114, 251, 210, 0.2)',
+        lineColor: '#eee',
+        lineColorDark: '#000',
+        thumbColor: '#eee',
+        thumbColorDark: '#444',
+        managerTopBarColor: '#f0f0f0',
+        managerTopBarColorDark: '#222',
+    };
+    const parentThemeColors = inject<ComputedRef<WebCutColors> | null>('WEBCUT_THEME_COLORS', null);
+    const themeColors = computed(() => {
+        const colors = {
+            ...defaultColors,
+            ...(parentThemeColors?.value || {}),
+            ...(provideColors?.() || {}),
+        };
+        return colors;
+    });
+    provide('WEBCUT_THEME_COLORS', themeColors);
+    return {
+        themeColors,
+        // 导出该函数，在使用pinia进行全局共享时，需要在顶层组件内调用该方法，否则页面切换就无法提供colors
+        provide: () => provide('WEBCUT_THEME_COLORS', themeColors),
+    };
 }

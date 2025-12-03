@@ -9,7 +9,7 @@ This is a detailed reference for all exports from `src/index.ts`. It explains re
 - Props: `{ data?: Partial<WebCutContext> }` (`src/views/provider/index.vue:22`). When provided, merges with defaults and becomes the shared reactive context (`src/hooks/index.ts:20–49`).
 - Behavior:
   - Initializes dark/light theme overrides (`src/views/provider/index.vue:37–101`), locale based on `navigator.language` (`src/views/provider/index.vue:103–119`).
-  - Provides `VIDEO_CANVAS_CONTEXT` so child components and hooks can consume it (`src/views/provider/index.vue:126`, `src/hooks/index.ts:95`).
+  - Provides `WEBCUT_CONTEXT` so child components and hooks can consume it (`src/views/provider/index.vue:126`, `src/hooks/index.ts:95`).
 - Slots: Default slot renders the editor UI inside Naive UI providers.
 
 ### WebCutEditor

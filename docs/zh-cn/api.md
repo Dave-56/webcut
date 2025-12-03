@@ -9,7 +9,7 @@
 - 入参：`{ data?: Partial<WebCutContext> }`（`src/views/provider/index.vue:22`），传入时与默认值合并并注入上下文（`src/hooks/index.ts:20–49`）。
 - 行为：
   - 初始化暗/亮主题覆盖（`src/views/provider/index.vue:37–101`），基于 `navigator.language` 设置 `locale`（`src/views/provider/index.vue:103–119`）。
-  - 提供 `VIDEO_CANVAS_CONTEXT` 以便子组件/钩子消费（`src/views/provider/index.vue:126`，`src/hooks/index.ts:95`）。
+  - 提供 `WEBCUT_CONTEXT` 以便子组件/钩子消费（`src/views/provider/index.vue:126`，`src/hooks/index.ts:95`）。
 - 插槽：默认插槽承载编辑器 UI。
 
 ### WebCutEditor

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getStep, getGridSize, getLongText, getShortText } from '../../../libs/timeline';
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, reactive } from 'vue';
-import { useDarkMode } from '../../../views/dark-mode/hooks';
+import { useWebCutDarkMode } from '../../../views/dark-mode/hooks';
 import { useWebCutManager } from '../../../hooks/manager';
 
 const emit = defineEmits(['click']);
@@ -10,7 +10,7 @@ const props = defineProps<{
   focus?: [start: number, end: number];
 }>();
 
-const isDark = useDarkMode();
+const isDark = useWebCutDarkMode();
 const { cursorPx, fps, scale, moveCursorToPx, scroll2, ruler } = useWebCutManager();
 
 onMounted(() => {

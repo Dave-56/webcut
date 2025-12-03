@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { WebCutContext, WebCutColors } from '../../types';
-import { useWebCutContext } from '../../hooks';
-import { useDarkMode } from '../../views/dark-mode/hooks';
+import { useWebCutContext, useWebCutThemeColors } from '../../hooks';
+import { useWebCutDarkMode } from '../../views/dark-mode/hooks';
 import {
     NConfigProvider,
     darkTheme,
@@ -17,8 +17,7 @@ import {
     dateZhTW,
     GlobalThemeOverrides,
 } from 'naive-ui';
-import { computed, provide as provideRoot } from 'vue';
-import { assignNotEmpty } from '../../libs/object';
+import { computed, inject, provide } from 'vue';
 
 export interface WebCutProviderProps {
     data?: Partial<WebCutContext>;
@@ -26,94 +25,59 @@ export interface WebCutProviderProps {
 }
 
 const props = defineProps<WebCutProviderProps>();
-const colors = computed<WebCutColors>(() => assignNotEmpty({
-  baseColor: '#222222',
-  baseColorDark: '#1a1a1a',
-  primaryColor: '#00b4a2',
-  primaryColorHover: '#01a595',
-  primaryColorPressed: '#009d8d',
-  primaryColorSuppl: '#009586',
+const { themeColors, provide: provideThemeColors } = useWebCutThemeColors(() => props.colors);
+const { provide: provideContext } = useWebCutContext(() => props.data);
+const isDarkMode = useWebCutDarkMode();
 
-  textColor: '#000000',
-  textColorHover: '#01a595',
-  textColorDark: '#ffffff',
-  textColorDarkHover: '#eeeeee',
-
-  backgroundColor: 'transparent',
-  backgroundColorDark: '#222222',
-  greyColor: '#ccc',
-  greyColorDark: '#444',
-  greyDeepColor: '#eee',
-  greyDeepColorDark: '#2e2e2e',
-  railBgColor: '#f5f5f5',
-  railBgColorDark: '#1f1f1f',
-  railHoverBgColor: 'rgba(126, 151, 144, 0.2)',
-  railHoverBgColorDark: 'rgba(114, 251, 210, 0.2)',
-  lineColor: '#eee',
-  lineColorDark: '#000',
-  thumbColor: '#eee',
-  thumbColorDark: '#444',
-  managerTopBarColor: '#f0f0f0',
-  managerTopBarColorDark: '#222',
-}, props.colors || {}));
-
-provideRoot('WEBCUT_COLORS', colors);
-
-if (props.data) {
-    const { provide } = useWebCutContext(props.data);
-    provide();
-}
-
-const isDarkMode = useDarkMode();
-const darkOverrides = computed<GlobalThemeOverrides>(() => ({
+const darkOverrides = computed<GlobalThemeOverrides>  (() => ({
     common: {
-        primaryColor: colors.value.primaryColor,
-        primaryColorHover: colors.value.primaryColorHover,
-        primaryColorPressed: colors.value.primaryColorPressed,
-        primaryColorSuppl: colors.value.primaryColorSuppl,
+        primaryColor: themeColors.value.primaryColor,
+        primaryColorHover: themeColors.value.primaryColorHover,
+        primaryColorPressed: themeColors.value.primaryColorPressed,
+        primaryColorSuppl: themeColors.value.primaryColorSuppl,
     },
     Switch: {
-        railColorActive: colors.value.primaryColor,
+        railColorActive: themeColors.value.primaryColor,
     },
     Message: {
-        iconColorSuccess: colors.value.primaryColor,
+        iconColorSuccess: themeColors.value.primaryColor,
     },
     Select: {
         peers: {
             InternalSelection: {
-                textColor: colors.value.textColorDark,
-                textColorHover: colors.value.textColorDarkHover,
+                textColor: themeColors.value.textColorDark,
+                textColorHover: themeColors.value.textColorDarkHover,
             },
         },
     },
     Badge: {
-        color: colors.value.primaryColorSuppl,
+        color: themeColors.value.primaryColorSuppl,
     },
 }));
 const lightOverrides = computed<GlobalThemeOverrides>(() => ({
     common: {
-        primaryColor: colors.value.primaryColor,
-        primaryColorHover: colors.value.primaryColorHover,
-        primaryColorPressed: colors.value.primaryColorPressed,
-        primaryColorSuppl: colors.value.primaryColorSuppl,
+        primaryColor: themeColors.value.primaryColor,
+        primaryColorHover: themeColors.value.primaryColorHover,
+        primaryColorPressed: themeColors.value.primaryColorPressed,
+        primaryColorSuppl: themeColors.value.primaryColorSuppl,
     },
     Switch: {
-        railColorActive: colors.value.primaryColor,
+        railColorActive: themeColors.value.primaryColor,
     },
     Message: {
-        iconColorSuccess: colors.value.primaryColor,
+        iconColorSuccess: themeColors.value.primaryColor,
     },
     Select: {
         peers: {
             InternalSelection: {
-                textColor: colors.value.textColor,
+                textColor: themeColors.value.textColor,
                 // @ts-ignore
-                textColorHover: colors.value.textColorHover,
+                textColorHover: themeColors.value.textColorHover,
             },
         },
     },
     Badge: {
-        color: colors.value.primaryColorSuppl,
+        color: themeColors.value.primaryColorSuppl,
     },
 }));
 const theme = computed(() => isDarkMode.value ? darkTheme : undefined);
@@ -136,13 +100,17 @@ const dateLngPkg = computed(() => {
         return dateZhCN;
     }
 });
+
+const isInProvider = inject('WEBCUT_IN_PROVIDER', false);
+provide('WEBCUT_IN_PROVIDER', true);
+provideContext();
+provideThemeColors();
 </script>
 
 <template>
-    <div class="webcut-root" :style="{
-        '--background-color': isDarkMode ? colors.backgroundColorDark : colors.backgroundColor,
-    }">
-        <n-config-provider :theme="theme" :theme-overrides="overrides" :locale="lngPkg" :date-locale="dateLngPkg">
+    <div :class="{ 'webcut-root': !isInProvider, 'webcut-root--inside': isInProvider }">
+        <slot v-if="isInProvider"></slot>
+        <n-config-provider :theme="theme" :theme-overrides="overrides" :locale="lngPkg" :date-locale="dateLngPkg" v-else>
             <n-loading-bar-provider>
                 <n-modal-provider>
                     <n-dialog-provider>
@@ -150,15 +118,16 @@ const dateLngPkg = computed(() => {
                             <n-element>
                                 <n-notification-provider placement="bottom-right">
                                     <div class="webcut-container" :style="{
-                                        '--webcut-grey-color': isDarkMode ? colors.greyColorDark : colors.greyColor,
-                                        '--webcut-grey-deep-color': isDarkMode ? colors.greyDeepColorDark : colors.greyDeepColor,
-                                        '--webcut-rail-bg-color': isDarkMode ? colors.railBgColorDark : colors.railBgColor,
-                                        '--webcut-rail-hover-bg-color': isDarkMode ? colors.railHoverBgColorDark : colors.railHoverBgColor,
-                                        '--webcut-line-color': isDarkMode ? colors.lineColorDark : colors.lineColor,
-                                        '--webcut-thumb-color': isDarkMode ? colors.thumbColorDark : colors.thumbColor,
-                                        '--webcut-manager-top-bar-color': isDarkMode ? colors.managerTopBarColorDark : colors.managerTopBarColor,
-                                        '--small-form-font-size': '10px',
-                                        '--small-form-font-size-tiny': '8px',
+                                        '--webcut-background-color': isDarkMode ? themeColors.backgroundColorDark : themeColors.backgroundColor,
+                                        '--webcut-grey-color': isDarkMode ? themeColors.greyColorDark : themeColors.greyColor,
+                                        '--webcut-grey-deep-color': isDarkMode ? themeColors.greyDeepColorDark : themeColors.greyDeepColor,
+                                        '--webcut-rail-bg-color': isDarkMode ? themeColors.railBgColorDark : themeColors.railBgColor,
+                                        '--webcut-rail-hover-bg-color': isDarkMode ? themeColors.railHoverBgColorDark : themeColors.railHoverBgColor,
+                                        '--webcut-line-color': isDarkMode ? themeColors.lineColorDark : themeColors.lineColor,
+                                        '--webcut-thumb-color': isDarkMode ? themeColors.thumbColorDark : themeColors.thumbColor,
+                                        '--webcut-manager-top-bar-color': isDarkMode ? themeColors.managerTopBarColorDark : themeColors.managerTopBarColor,
+                                        '--webcut-small-form-font-size': '10px',
+                                        '--webcut-small-form-font-size-tiny': '8px',
                                     }">
                                         <slot></slot>
                                     </div>
@@ -173,22 +142,21 @@ const dateLngPkg = computed(() => {
 </template>
 
 <style scoped>
-.webcut-root {
-    flex: 1;
-    height: 100%;
-    width: 100%;
-    background-color: var(--background-color);
-}
-
-.webcut-container,
+.webcut-root--inside,
+.webcut-root,
 .webcut-root :deep(.n-config-provider),
 .webcut-root :deep(.n-element) {
     display: contents;
 }
 
 .webcut-container {
+    flex: 1;
+    height: 100%;
+    width: 100%;
     color: var(--text-color-base);
+    background-color: var(--webcut-background-color);
 }
+
 .webcut-root :deep(.sprite-rect .ctrl-key-rotate) {
     cursor: url(../../img/rotate.svg) 20 20, crosshair !important;
 }
@@ -300,22 +268,22 @@ const dateLngPkg = computed(() => {
 }
 .webcut-root :deep(.n-form-item--small-size),
 .webcut-root :deep(.n-form-item--small-size .n-form-item-label__text) {
-  font-size: var(--small-form-font-size) !important;
-  --n-label-font-size: var(--small-form-font-size) !important;
+  font-size: var(--webcut-small-form-font-size) !important;
+  --n-label-font-size: var(--webcut-small-form-font-size) !important;
 }
 .webcut-root :deep(.n-form-item--small-size .n-input-group-label) {
-    font-size: var(--small-form-font-size) !important;
+    font-size: var(--webcut-small-form-font-size) !important;
 }
 .webcut-root :deep(.n-form-item--small-size .n-button) {
-    font-size: var(--small-form-font-size) !important;
+    font-size: var(--webcut-small-form-font-size) !important;
 }
 .webcut-root :deep(.n-form-item--small-size .n-form-item-feedback) {
-  font-size: var(--small-form-font-size-tiny);
+  font-size: var(--webcut-small-form-font-size-tiny);
 }
 .webcut-root :deep(.n-color-picker-trigger__value) {
     opacity: 0;
 }
 .webcut-root :deep(.n-form-item--small-size .n-input__textarea-el) {
-    font-size: var(--small-form-font-size);
+    font-size: var(--webcut-small-form-font-size);
 }
 </style>

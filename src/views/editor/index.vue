@@ -6,8 +6,8 @@ import WebCutPlayerScreen from '../player/screen.vue';
 import WebCutPlayerButton from '../player/button.vue';
 import WebCutManager from '../manager/index.vue';
 import WebCutManagerScaler from '../manager/scaler/index.vue';
-import { useWebCutContext, useWebCutPlayer } from '../../hooks';
-import ThemeSwitch from '../../views/dark-mode/theme-switch.vue';
+import { useWebCutContext, useWebCutPlayer, useWebCutThemeColors } from '../../hooks';
+import ThemeSwitch from '../dark-mode/theme-switch.vue';
 import WebCutSelectAspectRatio from '../select-aspect-ratio/index.vue';
 import WebCutTimeClock from '../time-clock/index.vue';
 import WebCutLibrary from '../library/index.vue';
@@ -15,7 +15,7 @@ import VideoSegment from '../manager/segments/video.vue';
 import AudioSegment from '../manager/segments/audio.vue';
 import ImageSegment from '../manager/segments/image.vue';
 import TextSegment from '../manager/segments/text.vue';
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useWebCutManager } from '../../hooks/manager';
 import ClearSelected from '../tools/clear-selected/index.vue';
 import DeleteCurrent from '../tools/delete-current/index.vue';
@@ -27,18 +27,24 @@ import SplitKeepRight from '../tools/split-keep-right/index.vue';
 import Panel from '../panel/index.vue';
 import ExportButton from '../export-button/index.vue';
 import { WebCutColors } from '../../types';
+import { useWebCutDarkMode } from '../dark-mode/hooks';
 
 const props = defineProps<{
     projectId?: string;
     colors?: Partial<WebCutColors>;
+    /** 是否禁用顶部右侧栏 */
+    disableTopRightBar?: boolean;
+    /** 是否为暗黑模式 */
+    isDarkMode?: boolean;
 }>();
 
-useWebCutContext({
-    id: props.projectId,
-});
+useWebCutContext(() => props.projectId ? { id: props.projectId } : undefined);
+useWebCutThemeColors(() => props.colors);
 
+const isDarkMode = useWebCutDarkMode();
 const { resize } = useWebCutPlayer();
 const { resizeManagerMaxHeight, toggleRailHidden, toggleRailMute } = useWebCutManager();
+
 const bottomSide = ref();
 
 function handleResized() {
@@ -49,13 +55,20 @@ function handleResized() {
 
 onMounted(handleResized);
 
+watch(() => props.isDarkMode, (newValue) => {
+    if (typeof newValue === 'boolean') {
+        isDarkMode.value = newValue;
+    }
+}, { immediate: true });
+
 function handleToggleLocked(rail: any) {
     rail.locked = !rail.locked;
 }
 </script>
 
 <template>
-    <WebCutProvider :colors="props.colors">
+    <WebCutProvider>
+        <slot name="header"></slot>
         <div class="webcut-editor">
             <n-split direction="vertical" :default-size="0.8" min="400px" :max="0.8" @update:size="handleResized">
                 <template #1>
@@ -83,7 +96,7 @@ function handleToggleLocked(rail: any) {
                                 </template>
                                 <template #2>
                                     <div class="webcut-editor-right-side">
-                                        <div class="webcut-editor-right-side-top-bar">
+                                        <div class="webcut-editor-right-side-top-bar" v-if="!props.disableTopRightBar">
                                             <ThemeSwitch></ThemeSwitch>
                                             <span style="margin: auto;"></span>
                                             <ExportButton></ExportButton>
@@ -160,6 +173,7 @@ function handleToggleLocked(rail: any) {
                 </template>
             </n-split>
         </div>
+        <slot name="footer"></slot>
     </WebCutProvider>
 </template>
 

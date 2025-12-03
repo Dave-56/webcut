@@ -63,6 +63,9 @@ export type WebCutContext = {
 
     canUndo: boolean;
     canRedo: boolean;
+
+    /** 颜色方案 */
+    perfersColorScheme: 'light' | 'dark';
 };
 
 export type WebCutTextHighlight = {
@@ -224,8 +227,6 @@ export type HistoryState =
     };
 
 export interface WebCutColors {
-    baseColor: string,
-    baseColorDark: string,
     primaryColor: string,
     primaryColorHover: string,
     primaryColorPressed: string,
