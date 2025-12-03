@@ -1,4 +1,4 @@
-import { useWebCutContext } from '../../hooks';
+import { useWebCutContext } from './index';
 import { onMounted, computed, watch, type Ref, nextTick } from 'vue';
 
 /**
@@ -6,7 +6,7 @@ import { onMounted, computed, watch, type Ref, nextTick } from 'vue';
  * 在第一次加载时，会使用外部的darkMode作为初始值
  * @param darkMode
  */
-export function useWebCutBindOutsideDarkMode(darkMode: Ref<boolean>) {
+export function useWebCutBindOutsideDarkMode(darkMode: Ref<boolean | undefined>) {
   const isDarkMode = useWebCutDarkMode();
   let isInitial = false;
   watch(darkMode, (newValue) => {

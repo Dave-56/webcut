@@ -7,7 +7,7 @@ import WebCutPlayerButton from '../player/button.vue';
 import WebCutManager from '../manager/index.vue';
 import WebCutManagerScaler from '../manager/scaler/index.vue';
 import { useWebCutContext, useWebCutPlayer, useWebCutThemeColors } from '../../hooks';
-import ThemeSwitch from '../dark-mode/theme-switch.vue';
+import ThemeSwitch from '../theme-switch/index.vue';
 import WebCutSelectAspectRatio from '../select-aspect-ratio/index.vue';
 import WebCutTimeClock from '../time-clock/index.vue';
 import WebCutLibrary from '../library/index.vue';
@@ -27,10 +27,8 @@ import SplitKeepRight from '../tools/split-keep-right/index.vue';
 import Panel from '../panel/index.vue';
 import ExportButton from '../export-button/index.vue';
 import { WebCutColors } from '../../types';
-import { useWebCutBindOutsideDarkMode } from '../dark-mode/hooks';
+import { useWebCutBindOutsideDarkMode } from '../../hooks/theme';
 
-/** 是否为暗黑模式 */
-const darkMode = defineModel<boolean>('isDarkMode', { default: false });
 const props = defineProps<{
     projectId?: string;
     colors?: Partial<WebCutColors>;
@@ -38,12 +36,14 @@ const props = defineProps<{
     disableTopRightBar?: boolean;
 }>();
 
+const darkMode = defineModel<any>('isDarkMode');
+useWebCutBindOutsideDarkMode(darkMode);
+
 useWebCutContext(() => props.projectId ? { id: props.projectId } : undefined);
 useWebCutThemeColors(() => props.colors);
 
 const { resize } = useWebCutPlayer();
 const { resizeManagerMaxHeight, toggleRailHidden, toggleRailMute } = useWebCutManager();
-useWebCutBindOutsideDarkMode(darkMode);
 
 const bottomSide = ref();
 

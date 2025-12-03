@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getStep, getGridSize, getLongText, getShortText } from '../../../libs/timeline';
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, reactive } from 'vue';
-import { useWebCutDarkMode } from '../../../views/dark-mode/hooks';
+import { useWebCutDarkMode } from '../../../hooks/theme';
 import { useWebCutManager } from '../../../hooks/manager';
 
 const emit = defineEmits(['click']);

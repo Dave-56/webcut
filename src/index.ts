@@ -22,7 +22,7 @@ import WebCutEditor from './views/editor/index.vue';
 import WebCutTimeClock from './views/time-clock/index.vue';
 import WebCutExportButton from './views/export-button/index.vue';
 
-import WebCutThemeSwitch from './views/dark-mode/theme-switch.vue';
+import WebCutThemeSwitch from './views/theme-switch/index.vue';
 import AdjustableBox from './components/adjustable-box/index.vue';
 import AudioShape from './components/audio-shape/index.vue';
 import ContextMenu from './components/context-menu/index.vue';
@@ -64,10 +64,10 @@ export {
     RotateInput,
 };
 
-export * from './views/dark-mode/hooks';
 export * from './components/scroll-box';
 
 export * from './hooks';
+export * from './hooks/theme';
 export * from './hooks/manager';
 export * from './hooks/library';
 export * from './hooks/local-file';

@@ -1,12 +1,12 @@
 <script setup lang="tsx">
 import { NIcon, NSwitch } from 'naive-ui';
-import { useWebCutDarkMode, useWebCutBindOutsideDarkMode } from './hooks';
+import { useWebCutDarkMode, useWebCutBindOutsideDarkMode } from '../../hooks/theme';
 import { WeatherMoon16Regular, WeatherSunny16Regular } from '@vicons/fluent';
 
-const darkMode = defineModel<boolean>('isDarkMode', { default: false });
+const darkMode = defineModel<any>('isDarkMode');
+useWebCutBindOutsideDarkMode(darkMode);
 
 const isDarkMode = useWebCutDarkMode();
-useWebCutBindOutsideDarkMode(darkMode);
 </script>
 
 <template>

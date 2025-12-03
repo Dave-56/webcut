@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { WebCutContext, WebCutColors } from '../../types';
 import { useWebCutContext, useWebCutThemeColors } from '../../hooks';
-import { useWebCutDarkMode } from '../../views/dark-mode/hooks';
+import { useWebCutDarkMode } from '../../hooks/theme';
 import {
     NConfigProvider,
     darkTheme,
@@ -25,6 +25,7 @@ export interface WebCutProviderProps {
 }
 
 const props = defineProps<WebCutProviderProps>();
+
 const { themeColors, provide: provideThemeColors } = useWebCutThemeColors(() => props.colors);
 const { provide: provideContext } = useWebCutContext(() => props.data);
 const isDarkMode = useWebCutDarkMode();
