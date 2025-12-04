@@ -1,9 +1,5 @@
 name: Publish To NPM
 on:
-  push:
-    ## only works on main branch
-    branches:
-      - main
   pull_request:
     types:
       - closed
@@ -14,21 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v5
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          registry-url: https://registry.npmjs.org/
+          registry-url: https://registry.npmjs.org
+      - name: Check Version
+        run: npx can-npm-publish
       - name: Install PNPM
         run: npm install -g pnpm
       - name: Install Dependencies
         run: pnpm install --verbose
-      - name: Check Version
-        run: npx can-npm-publish
       - name: Build
         run: pnpm run build
       - name: Publish
-        run: pnpm publish
+        run: npm publish --provenance --access public
         env:
-          NPM_AUTH_TOKEN: ${{secrets.NPM_AUTH_TOKEN}}
+          NODE_AUTH_TOKEN: ${{secrets.NPM_AUTH_TOKEN}}
+
