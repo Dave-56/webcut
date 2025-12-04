@@ -30,7 +30,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix",
     "typecheck": "vue-tsc --noEmit",
-    "preversion": "standard-version && exit 0"
+    "preversion": "standard-version && exit 0",
+    "release": "standard-version"
   },
   "keywords": [
     "video",
