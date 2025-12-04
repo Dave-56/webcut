@@ -106,6 +106,9 @@ export {
     exportAsWavBlobOffscreen,
     mp4BlobToWavArrayBuffer,
     mp4BlobToWavBlob,
+    mp4ClipToAudioClip,
+    mp4ClipToFramesData,
+    createImageFromVideoFrame,
 } from './libs';
 export {
     base64ToFile,

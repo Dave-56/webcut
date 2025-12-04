@@ -507,89 +507,89 @@ export async function audioClipToFile(clip: AudioClip) {
 }
 
 export function pcmToWav(pcmData: Float32Array[], sampleRate = 44100) {
-  // pcmData 预期格式为：[channel1Data, channel2Data, ...]
-  // 其中 channel1Data, channel2Data 是 Float32Array 或普通数字数组，包含该声道的样本数据
+    // pcmData 预期格式为：[channel1Data, channel2Data, ...]
+    // 其中 channel1Data, channel2Data 是 Float32Array 或普通数字数组，包含该声道的样本数据
 
-  if (!pcmData || pcmData.length === 0 || !pcmData[0] || pcmData[0].length === 0) {
-    throw new Error("PCM 数据必须是一个包含声道数据的数组，且至少包含一个声道和一个样本。");
-  }
-
-  const numChannels = pcmData.length;
-  const numSamplesPerChannel = pcmData[0].length; // 假设所有声道长度相同
-
-  // （可选）验证所有声道是否具有相同数量的样本
-  for (let i = 1; i < numChannels; i++) {
-    if (!pcmData[i] || pcmData[i].length !== numSamplesPerChannel) {
-      throw new Error("所有声道必须包含相同数量的样本，并且是有效的数组。");
+    if (!pcmData || pcmData.length === 0 || !pcmData[0] || pcmData[0].length === 0) {
+        throw new Error("PCM 数据必须是一个包含声道数据的数组，且至少包含一个声道和一个样本。");
     }
-  }
 
-  const bitsPerSample = 16;
-  const bytesPerSample = bitsPerSample / 8; // 对于16位PCM，每个样本2字节
-  const headerSize = 44; // WAV文件头的大小
+    const numChannels = pcmData.length;
+    const numSamplesPerChannel = pcmData[0].length; // 假设所有声道长度相同
 
-  // 音频数据的总字节数
-  const audioDataSize = numSamplesPerChannel * numChannels * bytesPerSample;
-  // 文件总大小 = 文件头大小 + 音频数据大小
-  const fileSize = headerSize + audioDataSize;
-
-  const buffer = new ArrayBuffer(fileSize);
-  const view = new DataView(buffer);
-
-  // --- WAV 文件头 ---
-  // 块ID "RIFF" (偏移量 0, 4字节)
-  view.setUint32(0, 0x52494646, false); // "RIFF" (大端序)
-  // 块大小 (偏移量 4, 4字节) = 文件总大小 - 8 (RIFF标识符和此字段本身的大小)
-  view.setUint32(4, fileSize - 8, true); // 小端序
-  // 格式 "WAVE" (偏移量 8, 4字节)
-  view.setUint32(8, 0x57415645, false); // "WAVE" (大端序)
-
-  // 子块1 ID "fmt " (偏移量 12, 4字节)
-  view.setUint32(12, 0x666d7420, false); // "fmt " (大端序)
-  // 子块1 大小 (偏移量 16, 4字节) - 对于PCM，通常为16
-  view.setUint32(16, 16, true); // 小端序
-  // 音频格式 (偏移量 20, 2字节) - 1 表示 PCM
-  view.setUint16(20, 1, true); // 小端序
-  // 声道数 (偏移量 22, 2字节)
-  view.setUint16(22, numChannels, true); // 小端序
-  // 采样率 (偏移量 24, 4字节)
-  view.setUint32(24, sampleRate, true); // 小端序
-  // 字节率 (偏移量 28, 4字节) = SampleRate * NumChannels * BitsPerSample/8
-  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // 小端序
-  // 块对齐 (偏移量 32, 2字节) = NumChannels * BitsPerSample/8
-  view.setUint16(32, numChannels * bytesPerSample, true); // 小端序
-  // 每个样本的位数 (偏移量 34, 2字节)
-  view.setUint16(34, bitsPerSample, true); // 小端序
-
-  // 子块2 ID "data" (偏移量 36, 4字节)
-  view.setUint32(36, 0x64617461, false); // "data" (大端序)
-  // 子块2 大小 (偏移量 40, 4字节) = 音频数据的总字节数
-  view.setUint32(40, audioDataSize, true); // 小端序
-
-  // --- PCM 数据 ---
-  // 从文件头的末尾 (44字节处) 开始写入数据
-  let dataIndex = headerSize;
-  for (let i = 0; i < numSamplesPerChannel; i++) { // 遍历每个采样帧
-    for (let ch = 0; ch < numChannels; ch++) {    // 遍历当前采样帧的每个声道
-      // 获取浮点数样本值，并将其限制在 [-1.0, 1.0] 范围内
-      const sampleFloat = Math.max(-1, Math.min(1, pcmData[ch][i]));
-
-      // 将浮点数样本转换为16位有符号整数PCM值
-      let sampleInt;
-      if (sampleFloat < 0) {
-        sampleInt = sampleFloat * 0x8000; // 对于负数，乘以32768
-      } else {
-        sampleInt = sampleFloat * 0x7FFF; // 对于正数，乘以32767
-      }
-      // 确保转换后的值在16位有符号整数范围内 (尽管setInt16会自动处理溢出，但显式处理更佳)
-      // sampleInt = Math.max(-32768, Math.min(32767, Math.round(sampleInt))); // 可选：四舍五入
-
-      view.setInt16(dataIndex, sampleInt, true); // 以小端序写入16位有符号整数
-      dataIndex += bytesPerSample;
+    // （可选）验证所有声道是否具有相同数量的样本
+    for (let i = 1; i < numChannels; i++) {
+        if (!pcmData[i] || pcmData[i].length !== numSamplesPerChannel) {
+            throw new Error("所有声道必须包含相同数量的样本，并且是有效的数组。");
+        }
     }
-  }
 
-  return new Blob([buffer], { type: 'audio/wav' });
+    const bitsPerSample = 16;
+    const bytesPerSample = bitsPerSample / 8; // 对于16位PCM，每个样本2字节
+    const headerSize = 44; // WAV文件头的大小
+
+    // 音频数据的总字节数
+    const audioDataSize = numSamplesPerChannel * numChannels * bytesPerSample;
+    // 文件总大小 = 文件头大小 + 音频数据大小
+    const fileSize = headerSize + audioDataSize;
+
+    const buffer = new ArrayBuffer(fileSize);
+    const view = new DataView(buffer);
+
+    // --- WAV 文件头 ---
+    // 块ID "RIFF" (偏移量 0, 4字节)
+    view.setUint32(0, 0x52494646, false); // "RIFF" (大端序)
+    // 块大小 (偏移量 4, 4字节) = 文件总大小 - 8 (RIFF标识符和此字段本身的大小)
+    view.setUint32(4, fileSize - 8, true); // 小端序
+    // 格式 "WAVE" (偏移量 8, 4字节)
+    view.setUint32(8, 0x57415645, false); // "WAVE" (大端序)
+
+    // 子块1 ID "fmt " (偏移量 12, 4字节)
+    view.setUint32(12, 0x666d7420, false); // "fmt " (大端序)
+    // 子块1 大小 (偏移量 16, 4字节) - 对于PCM，通常为16
+    view.setUint32(16, 16, true); // 小端序
+    // 音频格式 (偏移量 20, 2字节) - 1 表示 PCM
+    view.setUint16(20, 1, true); // 小端序
+    // 声道数 (偏移量 22, 2字节)
+    view.setUint16(22, numChannels, true); // 小端序
+    // 采样率 (偏移量 24, 4字节)
+    view.setUint32(24, sampleRate, true); // 小端序
+    // 字节率 (偏移量 28, 4字节) = SampleRate * NumChannels * BitsPerSample/8
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // 小端序
+    // 块对齐 (偏移量 32, 2字节) = NumChannels * BitsPerSample/8
+    view.setUint16(32, numChannels * bytesPerSample, true); // 小端序
+    // 每个样本的位数 (偏移量 34, 2字节)
+    view.setUint16(34, bitsPerSample, true); // 小端序
+
+    // 子块2 ID "data" (偏移量 36, 4字节)
+    view.setUint32(36, 0x64617461, false); // "data" (大端序)
+    // 子块2 大小 (偏移量 40, 4字节) = 音频数据的总字节数
+    view.setUint32(40, audioDataSize, true); // 小端序
+
+    // --- PCM 数据 ---
+    // 从文件头的末尾 (44字节处) 开始写入数据
+    let dataIndex = headerSize;
+    for (let i = 0; i < numSamplesPerChannel; i++) { // 遍历每个采样帧
+        for (let ch = 0; ch < numChannels; ch++) {    // 遍历当前采样帧的每个声道
+            // 获取浮点数样本值，并将其限制在 [-1.0, 1.0] 范围内
+            const sampleFloat = Math.max(-1, Math.min(1, pcmData[ch][i]));
+
+            // 将浮点数样本转换为16位有符号整数PCM值
+            let sampleInt;
+            if (sampleFloat < 0) {
+                sampleInt = sampleFloat * 0x8000; // 对于负数，乘以32768
+            } else {
+                sampleInt = sampleFloat * 0x7FFF; // 对于正数，乘以32767
+            }
+            // 确保转换后的值在16位有符号整数范围内 (尽管setInt16会自动处理溢出，但显式处理更佳)
+            // sampleInt = Math.max(-32768, Math.min(32767, Math.round(sampleInt))); // 可选：四舍五入
+
+            view.setInt16(dataIndex, sampleInt, true); // 以小端序写入16位有符号整数
+            dataIndex += bytesPerSample;
+        }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
 }
 
 
@@ -640,7 +640,7 @@ export async function mp4BlobToWavArrayBuffer(mp4Blob: Blob): Promise<ArrayBuffe
     const arrbuff = await mp4Blob.arrayBuffer();
     return new Promise((resolve, reject) => {
         const audioCtx = new AudioContext();
-        audioCtx.decodeAudioData(arrbuff, function(audioBuffer) {
+        audioCtx.decodeAudioData(arrbuff, function (audioBuffer) {
             const arrbuff = toWav(audioBuffer);
             resolve(arrbuff);
         }, reject);
@@ -651,4 +651,84 @@ export async function mp4BlobToWavBlob(mp4Blob: Blob): Promise<Blob> {
     const arrbuff = await mp4BlobToWavArrayBuffer(mp4Blob);
     const wavBlob = new Blob([arrbuff], { type: 'audio/wav' });
     return wavBlob;
+}
+
+export async function mp4ClipToFramesData(mp4Clip: MP4Clip): Promise<{ pcm: [Float32Array, Float32Array]; frames: { video: VideoFrame, ts: number }[] }> {
+    const clip = await mp4Clip.clone();
+    await clip.ready;
+
+    // Extract all PCM data from the MP4Clip
+    const pcmData: Float32Array[][] = [];
+    const frames: { video: VideoFrame, ts: number }[] = [];
+    const step = 10000; // 10ms steps in microseconds
+
+    for (let time = 0; time < clip.meta.duration; time += step) {
+        const { audio, video } = await clip.tick(time);
+        if (audio && audio.length > 0) {
+            pcmData.push(audio);
+        }
+        if (video) {
+            frames.push({ video, ts: time });
+        }
+    }
+
+    // Concatenate all PCM fragments
+    const totalSamples = pcmData.reduce((sum, chunk) => sum + chunk[0].length, 0);
+    const leftChannelPCM = new Float32Array(totalSamples);
+    const rightChannelPCM = new Float32Array(totalSamples);
+
+    let offset = 0;
+    for (const chunk of pcmData) {
+        leftChannelPCM.set(chunk[0], offset);
+        rightChannelPCM.set(chunk[1], offset);
+        offset += chunk[0].length;
+    }
+
+    clip.destroy();
+
+    return {
+        pcm: [leftChannelPCM, rightChannelPCM],
+        frames,
+    };
+}
+
+export async function mp4ClipToAudioClip(mp4Clip: MP4Clip): Promise<AudioClip> {
+    const { pcm } = await mp4ClipToFramesData(mp4Clip);
+
+    // Create AudioClip from the complete PCM data
+    const audioClip = new AudioClip(pcm);
+    await audioClip.ready;
+
+    return audioClip;
+}
+
+export async function createImageFromVideoFrame(videoFrame: VideoFrame, options: { width?: number, height?: number }): Promise<Blob> {
+    const canvas = document.createElement('canvas');
+    const aspectRatio = videoFrame.codedWidth / videoFrame.codedHeight;
+    const { width, height } = options;
+
+    if (width) {
+        canvas.width = width;
+        canvas.height = height || Math.round(width / aspectRatio);
+    }
+    else if (height) {
+        canvas.height = height;
+        canvas.width = Math.round(height * aspectRatio);
+    }
+    else {
+        canvas.width = videoFrame.codedWidth;
+        canvas.height = videoFrame.codedHeight;
+    }
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(videoFrame, 0, 0, canvas.width, canvas.height);
+
+    // Get image data as a Blob (e.g., for saving or further processing)
+    // @ts-ignore
+    const blob: Blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    return blob;
+
+    // Alternatively, get image data as a base64 string
+    // const dataURL = canvas.toDataURL('image/png');
+    // return dataURL;
 }
