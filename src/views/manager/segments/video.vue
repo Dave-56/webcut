@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { MP4Clip } from '@webav/av-cliper';
 import { WebCutSegment, WebCutRail } from '../../../types';
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted, markRaw } from 'vue';
 import { useWebCutContext } from '../../../hooks';
 import { blobToBase64DataURL } from '../../../libs/file';
 import { useWebCutManager } from '../../../hooks/manager';
 import ContextMenu from '../../../components/context-menu/index.vue';
 import { useWebCutHistory } from '../../../hooks/history';
-import { mp4BlobToWavArrayBuffer, mp4ClipToBlob } from '../../../libs';
+import { mp4ClipToFramesData, createImageFromVideoFrame } from '../../../libs';
 import AudioShape from '../../../components/audio-shape/index.vue';
 import { useScrollBox } from '../../../components/scroll-box';
 
@@ -30,19 +30,36 @@ const scrollBox = useScrollBox();
 
 const thumbnails = ref<{ url: string; left: number }[]>([]);
 const sourceImageWidth = ref(0);
-const sourceThumbnails = ref<{ ts: number; url: string; offset: number }[]>([]);
-const sourceDuration = ref(0);
-const totalWidth = computed(() => timeToPx(sourceDuration.value));
+const sourceFrames = ref<{ ts: number; blob: Blob; offset: number }[]>([]);
 
 const source = computed(() => sources.value.get(props.segment.sourceKey));
+const totalDuration = computed(() => {
+    const { sprite } = source.value || {};
+    return sprite ? sprite.time.duration || 0 : 0;
+});
+const totalWidth = computed(() => {
+    return timeToPx(totalDuration.value);
+});
+
 const audioF32 = ref();
 
-watch(() => [source.value, props.rail.mute], async () => {
+watch(source, async () => {
+    await initResources();
+    // await updatesourceFrames();
+    await updateThumbnails();
+}, { immediate: true });
+
+// watch(() => [source.value, props.rail.mute], initResources, { immediate: true });
+// watch(() => props.segment, async () => {
+//     await updatesourceFrames();
+//     await updateThumbnails();
+// }, { immediate: true });
+
+watch(scale, updateThumbnails);
+
+
+async function initResources() {
     try {
-        if (props.rail.mute) {
-            audioF32.value = null;
-            return;
-        }
         if (!source.value) {
             return;
         }
@@ -50,82 +67,78 @@ watch(() => [source.value, props.rail.mute], async () => {
         if (!clip) {
             return;
         }
-        const [videoClip, audioClip] = await (clip as MP4Clip).splitTrack();
-        videoClip.destroy();
-        if (!audioClip) {
-            return;
+
+        const { pcm, frames } = await mp4ClipToFramesData(clip as MP4Clip);
+        const [leftChannelPCM, rightChannelPCM] = pcm;
+
+        if (leftChannelPCM) {
+            audioF32.value = leftChannelPCM;
         }
-        const mp4Blob = await mp4ClipToBlob(audioClip);
-        const wavArrBuff = await mp4BlobToWavArrayBuffer(mp4Blob);
-        audioF32.value = new Float32Array(wavArrBuff);
-        audioClip.destroy();
+        else if (rightChannelPCM) {
+            audioF32.value = rightChannelPCM;
+        }
+        else {
+            audioF32.value = null;
+        }
+
+        if (frames) {
+            const imageData: any = [];
+            const dur = totalDuration.value;
+            await Promise.all(frames.map(async ({ video, ts }) => {
+                const imgBlob = await createImageFromVideoFrame(video, { width: 50 });
+                imageData.push({
+                    ts,
+                    blob: imgBlob,
+                    offset: ts / dur,
+                });
+                video.close();
+
+                // 初始化图片在轨道中的展示宽度
+                if (!sourceImageWidth.value) {
+                    const firstImg = await blobToBase64DataURL(imgBlob);
+                    const img = new Image();
+                    img.src = firstImg;
+                    await img.decode();
+                    const imgWidth = img.width;
+                    const imgHeight = img.height;
+                    // 图片在容器中的真实高度
+                    const realWidthPerImg = IMAGE_HEIGHT * imgWidth / imgHeight;
+                    sourceImageWidth.value = realWidthPerImg;
+                }
+            }));
+            sourceFrames.value = markRaw(imageData);
+        }
     }
     catch (e) {
         console.error(e);
     }
-}, { immediate: true });
-
-watch(() => props.segment, async () => {
-    await updateSourceThumbnails();
-    await updateThumbnails();
-}, { immediate: true });
-watch(scale, updateThumbnails);
-
-async function updateSourceThumbnails() {
-    const { sourceKey } = props.segment;
-    const source = sources.value.get(sourceKey);
-    if (!source) {
-        return;
-    }
-
-    const { clip, sprite } = source;
-    if (!clip) {
-        return [];
-    }
-
-    const dur = sprite.time.duration;
-    sourceDuration.value = dur;
-
-    const items = await (clip as MP4Clip).thumbnails(50, { step: dur / 200 });
-
-    const firstImg = await blobToBase64DataURL(items[0].img);
-    const img = new Image();
-    img.src = firstImg;
-    await img.decode();
-    const imgWidth = img.width;
-    const imgHeight = img.height;
-    // 图片在容器中的真实高度
-    const realWidthPerImg = IMAGE_HEIGHT * imgWidth / imgHeight;
-    sourceImageWidth.value = realWidthPerImg;
-
-    const changed = await Promise.all(items.map(async (item) => ({
-        ts: item.ts,
-        url: await blobToBase64DataURL(item.img),
-        offset: item.ts / dur,
-    })));
-    sourceThumbnails.value = changed;
 }
+
 /**
  * 通过优化的过滤算法，确保缩略图在视觉上尽可能连续拼接，同时避免过多重叠
  */
 async function updateThumbnails() {
+    if (!sourceFrames.value.length) {
+        return;
+    }
+
     const widthPerImage = sourceImageWidth.value;
 
     const outs: any[] = [{
-        url: sourceThumbnails.value[0].url,
+        url: await blobToBase64DataURL(sourceFrames.value[0].blob),
         left: 0,
     }];
 
     let currEndPx = widthPerImage;
 
-    for (let i = 1; i < sourceThumbnails.value.length; i ++) {
-        const item = sourceThumbnails.value[i];
+    for (let i = 1; i < sourceFrames.value.length; i ++) {
+        const item = sourceFrames.value[i];
         const itemStartPx = totalWidth.value * item.offset;
         if (itemStartPx < currEndPx - 4) {
             continue;
         }
         outs.push({
-            url: item.url,
+            url: await blobToBase64DataURL(item.blob),
             left: itemStartPx,
         });
         currEndPx = itemStartPx + widthPerImage;
@@ -182,18 +195,18 @@ onMounted(() => {
 
 <template>
     <context-menu :options="contextmenus" auto-hide v-slot="{ showContextMenus }" @select="handleSelectContextMenu">
-        <div class="webcut-video-segment" @contextmenu.capture.stop="showContextMenus" :style="{ '--thumb-img-height': IMAGE_HEIGHT + 'px', '--audio-wave-height': AUDIO_HEIGHT + 'px' }">
+        <div class="webcut-video-segment" @contextmenu.capture.stop="showContextMenus" :style="{ '--segment-total-width': totalWidth + 'px', '--thumb-img-height': IMAGE_HEIGHT + 'px', '--audio-wave-height': AUDIO_HEIGHT + 'px' }">
             <div
                 v-for="thumbnail in thumbnails"
                 :key="thumbnail.left"
                 :style="{
                     left: `${thumbnail.left}px`,
                     backgroundImage: `url(${thumbnail.url})`,
-                    width: sourceImageWidth * 4 + 'px',
+                    width: (totalWidth - thumbnail.left) + 'px',
                 }"
                 class="webcut-video-segment-thumbnail"
             ></div>
-            <div class="webcut-video-segment-bottom" v-if="audioF32">
+            <div class="webcut-video-segment-bottom" v-if="!props.rail.mute && audioF32">
                 <audio-shape
                     :height="AUDIO_HEIGHT - 4"
                     :width="totalWidth"
@@ -222,6 +235,7 @@ onMounted(() => {
 .webcut-video-segment-bottom {
     width: 100%;
     height: var(--audio-wave-height);
+    width: var(--segment-total-width);
     position: absolute;
     left: 0;
     bottom: 0;
