@@ -1,12 +1,18 @@
 name: Publish To NPM
 on:
   push:
-    ## only works on master branch
+    ## only works on main branch
     branches:
-      - master
+      - main
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
 jobs:
   publish:
     runs-on: ubuntu-latest
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     steps:
       - uses: actions/checkout@v2
       - name: Use Node.js 24.x
