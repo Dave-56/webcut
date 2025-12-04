@@ -43,6 +43,10 @@ function handleChange(diff: number) {
   border: 1px solid var(--border-color);
   border-radius: 50%;
 }
+.webcut-timeline-scale-control :deep(.n-slider .n-slider-handles) {
+  left: 0;
+  right: 0;
+}
 
 @media screen and (max-width: 960px) {
     .webcut-timeline-scale-control {
