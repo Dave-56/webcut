@@ -542,7 +542,7 @@ manager.value = exposes;
     gap: 4px;
     justify-content: flex-start;
     opacity: .4;
-    text-indent: 24px;
+    padding-left: 18px;
 }
 
 .webcute__manager__main__rail-segment {
