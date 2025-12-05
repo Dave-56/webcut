@@ -4,13 +4,14 @@ import { WebCutSegment, WebCutRail } from '../../../types';
 import { computed, ref, watch, onMounted, markRaw } from 'vue';
 import { useWebCutContext } from '../../../hooks';
 import { useT } from '../../../hooks/i18n';
-import { blobToBase64DataURL } from '../../../libs/file';
+import { downloadBlob } from '../../../libs/file';
 import { useWebCutManager } from '../../../hooks/manager';
 import ContextMenu from '../../../components/context-menu/index.vue';
 import { useWebCutHistory } from '../../../hooks/history';
-import { mp4ClipToFramesData, createImageFromVideoFrame } from '../../../libs';
+import { mp4ClipToFramesData, createImageFromVideoFrame, exportBlobOffscreen } from '../../../libs';
 import AudioShape from '../../../components/audio-shape/index.vue';
 import { useScrollBox } from '../../../components/scroll-box';
+import { PerformanceMark, mark, measure } from '../../../libs/performance';
 
 const t = useT();
 
@@ -46,32 +47,87 @@ const totalWidth = computed(() => {
 
 const audioF32 = ref();
 
-watch(source, async () => {
-    await initResources();
-    // await updatesourceFrames();
-    await updateThumbnails();
-}, { immediate: true });
-
-// watch(() => [source.value, props.rail.mute], initResources, { immediate: true });
-// watch(() => props.segment, async () => {
-//     await updatesourceFrames();
-//     await updateThumbnails();
-// }, { immediate: true });
+watch(source, initThumbnailsAndAudioWave, { immediate: true });
 
 watch(scale, updateThumbnails);
 
+const createImgUrl = (imgBlob: Blob) => {
+    const url = URL.createObjectURL(imgBlob);
+    // 释放内存，这些图片都是一次性使用的，下次还会再生成，因此，可以立即释放
+    setTimeout(() => {
+        URL.revokeObjectURL(url);
+    }, 1000);
+    return url;
+};
 
-async function initResources() {
+async function initThumbnailsAndAudioWave() {
     try {
         if (!source.value) {
             return;
         }
-        const { clip } = source.value;
+        const { clip, sprite } = source.value;
         if (!clip) {
             return;
         }
 
-        const { pcm, frames } = await mp4ClipToFramesData(clip as MP4Clip);
+        await clip.ready;
+        await sprite.ready;
+
+        const dur = sprite.time.duration;
+        const totalWidth = timeToPx(dur);
+
+        // 算出每张图片在轨道中的实际宽度
+        const originalWidth = clip.meta.width || 0;
+        const originalHeight = clip.meta.height || 0;
+        const realWidthPerImg = IMAGE_HEIGHT * originalWidth / originalHeight;
+        sourceImageWidth.value = realWidthPerImg;
+
+        mark(PerformanceMark.GenVideoSegmentFirstThumbStart);
+        let isFirstThumbGen = false;
+        sourceFrames.value = [];
+        // 通过iteratorCallback在迭代过程中逐一加载图片，从而提升首次渲染图片列表的性能
+        const iteratorCallback = async (data: { video: VideoFrame, ts: number, index: number }) => {
+            const { video, ts, index } = data;
+            const imgBlob = await createImageFromVideoFrame(video, { width: realWidthPerImg });
+
+            const offset = ts / dur;
+            const frame = {
+                ts,
+                blob: imgBlob,
+                offset,
+            };
+            sourceFrames.value[index] = markRaw(frame);
+            video.close(); // 关闭VideoFrame
+
+            // 第一次加载在载入缩略图
+            let currEndPx = 0;
+            for (let i = 0; i < sourceFrames.value.length; i ++) {
+                const item = sourceFrames.value[i];
+                if (!item) {
+                    continue;
+                }
+                const itemStartPx = totalWidth * item.offset;
+                if (itemStartPx < currEndPx - 4) {
+                    continue;
+                }
+                currEndPx = itemStartPx + realWidthPerImg;
+
+                if (i < index) {
+                    continue;
+                }
+                const url = createImgUrl(imgBlob);
+                thumbnails.value.push({
+                    url,
+                    left: itemStartPx,
+                });
+                if (!isFirstThumbGen) {
+                    isFirstThumbGen = true;
+                    mark(PerformanceMark.GenVideoSegmentFirstThumbEnd);
+                }
+            }
+        }
+
+        const { pcm } = await mp4ClipToFramesData(clip as MP4Clip, iteratorCallback);
         const [leftChannelPCM, rightChannelPCM] = pcm;
 
         if (leftChannelPCM) {
@@ -84,32 +140,17 @@ async function initResources() {
             audioF32.value = null;
         }
 
-        if (frames) {
-            const imageData: any = [];
-            const dur = totalDuration.value;
-            await Promise.all(frames.map(async ({ video, ts }) => {
-                const imgBlob = await createImageFromVideoFrame(video, { width: 50 });
-                imageData.push({
-                    ts,
-                    blob: imgBlob,
-                    offset: ts / dur,
-                });
-                video.close();
+        if (import.meta.env.DEV) {
+            measure(PerformanceMark.PushVideoStart, PerformanceMark.PushVideoEnd);
+            measure(PerformanceMark.GenVideoClipStart, PerformanceMark.GenVideoClipEnd);
+            measure(PerformanceMark.MeasureVideoSizeStart, PerformanceMark.MeasureVideoSizeEnd);
+            measure(PerformanceMark.GenVideoClipEnd, PerformanceMark.VideoSpriteAddStart);
+            measure(PerformanceMark.VideoSpriteAddStart, PerformanceMark.VideoSpriteAddEnd);
+            measure(PerformanceMark.VideoSpriteAddEnd, PerformanceMark.VideoSegmentAdded);
 
-                // 初始化图片在轨道中的展示宽度
-                if (!sourceImageWidth.value) {
-                    const firstImg = await blobToBase64DataURL(imgBlob);
-                    const img = new Image();
-                    img.src = firstImg;
-                    await img.decode();
-                    const imgWidth = img.width;
-                    const imgHeight = img.height;
-                    // 图片在容器中的真实高度
-                    const realWidthPerImg = IMAGE_HEIGHT * imgWidth / imgHeight;
-                    sourceImageWidth.value = realWidthPerImg;
-                }
-            }));
-            sourceFrames.value = markRaw(imageData);
+            measure(PerformanceMark.GenVideoSegmentFirstThumbStart, PerformanceMark.GenVideoSegmentFirstThumbEnd);
+            measure(PerformanceMark.ConvertMP4ClipToFramesStart, PerformanceMark.ConvertMP4ClipToFramesEnd);
+            measure(PerformanceMark.GenImageFromVideoFrameStart, PerformanceMark.GenImageFromVideoFrameEnd);
         }
     }
     catch (e) {
@@ -128,7 +169,7 @@ async function updateThumbnails() {
     const widthPerImage = sourceImageWidth.value;
 
     const outs: any[] = [{
-        url: await blobToBase64DataURL(sourceFrames.value[0].blob),
+        url: createImgUrl(sourceFrames.value[0].blob),
         left: 0,
     }];
 
@@ -136,12 +177,15 @@ async function updateThumbnails() {
 
     for (let i = 1; i < sourceFrames.value.length; i ++) {
         const item = sourceFrames.value[i];
+        if (!item) {
+            continue;
+        }
         const itemStartPx = totalWidth.value * item.offset;
         if (itemStartPx < currEndPx - 4) {
             continue;
         }
         outs.push({
-            url: await blobToBase64DataURL(item.blob),
+            url: createImgUrl(item.blob),
             left: itemStartPx,
         });
         currEndPx = itemStartPx + widthPerImage;
@@ -155,6 +199,10 @@ const contextmenus = computed(() => [
         label: t('删除'),
         key: 'delete',
     },
+    {
+        label: t('导出'),
+        key: 'export',
+    },
 ]);
 
 async function handleSelectContextMenu(key: string) {
@@ -167,6 +215,19 @@ async function handleSelectContextMenu(key: string) {
             sourceKey: props.segment.sourceKey,
         });
         deleteSegment({ segment: props.segment, rail: props.rail });
+    } else if (key === 'export') {
+        try {
+            const sourceInfo = sources.value.get(props.segment.sourceKey);
+            if (!sourceInfo || !sourceInfo.clip) return;
+
+            const clip = sourceInfo.clip as MP4Clip;
+            await clip.ready;
+
+            const blob = await exportBlobOffscreen([clip]);
+            downloadBlob(blob, `video-segment-${Date.now()}.mp4`);
+        } catch (error) {
+            console.error('导出失败:', error);
+        }
     }
 }
 
@@ -200,12 +261,12 @@ onMounted(() => {
     <context-menu :options="contextmenus" auto-hide v-slot="{ showContextMenus }" @select="handleSelectContextMenu">
         <div class="webcut-video-segment" @contextmenu.capture.stop="showContextMenus" :style="{ '--segment-total-width': totalWidth + 'px', '--thumb-img-height': IMAGE_HEIGHT + 'px', '--audio-wave-height': AUDIO_HEIGHT + 'px' }">
             <div
-                v-for="thumbnail in thumbnails"
+                v-for="thumbnail,index in thumbnails.filter(Boolean)"
                 :key="thumbnail.left"
                 :style="{
                     left: `${thumbnail.left}px`,
                     backgroundImage: `url(${thumbnail.url})`,
-                    width: (totalWidth - thumbnail.left) + 'px',
+                    width: thumbnails.filter(Boolean)[index + 1] ? (totalWidth - thumbnail.left) + 'px' : sourceImageWidth * 2 + 'px',
                 }"
                 class="webcut-video-segment-thumbnail"
             ></div>

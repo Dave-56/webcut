@@ -6,7 +6,6 @@ import {
   NUpload,
   NUploadDragger,
   NDropdown,
-  useLoadingBar,
 } from 'naive-ui';
 import { Add, Upload } from '@vicons/carbon';
 import { useWebCutLibrary } from '../../hooks/library';
@@ -14,12 +13,12 @@ import ScrollBox from '../../components/scroll-box/index.vue';
 import { useWebCutPlayer } from '../../hooks';
 import { useWebCutLocalFile } from '../../hooks/local-file';
 import { useT } from '../../hooks/i18n';
+import { PerformanceMark, mark } from '../../libs/performance';
 
 const t = useT();
 
 const { push } = useWebCutPlayer();
 const { projectFiles, files, addNewFile, removeFile } = useWebCutLibrary();
-const loadingBar = useLoadingBar();
 const { fileUrl } = useWebCutLocalFile();
 
 const allVideoList = computed(() => {
@@ -94,14 +93,13 @@ function onClickoutside() {
 
 async function handleAdd(material: any) {
   try {
+    mark(PerformanceMark.PushVideoStart);
     const { id } = material;
-    loadingBar.start();
     await push('video', `file:${id}`, { autoFitRect: 'contain' });
-    loadingBar.finish();
+    mark(PerformanceMark.PushVideoEnd);
   }
   catch (e) {
     console.error(e);
-    loadingBar.error();
   }
 }
 </script>
@@ -200,6 +198,7 @@ async function handleAdd(material: any) {
   font-size: .7em;
   padding: 2px 4px;
   cursor: pointer;
+  white-space: nowrap;
 
   &--active {
     background-color: var(--webcut-grey-color);

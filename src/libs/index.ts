@@ -5,6 +5,7 @@ import { WebCutHighlightOfText } from "../types";
 import { blobToFile } from "./file";
 // @ts-ignore
 import toWav from 'audiobuffer-to-wav';
+import { PerformanceMark, mark } from './performance';
 
 /**
  * 将文本渲染为 {@link ImageBitmap}，用来创建 {@link ImgClip}
@@ -310,22 +311,34 @@ export function textToCss(text: string) {
  * @returns
  */
 export async function measureVideoSize(source: File | string) {
-    let clip: MP4Clip;
+    mark(PerformanceMark.MeasureVideoSizeStart);
+    let url: string;
     if (source instanceof File) {
-        clip = new MP4Clip(source.stream());
+        url = URL.createObjectURL(source);
     }
     else if (source.startsWith('data:')) {
         const file = base64ToFile(source, 'video.mp4', 'video/mp4');
-        clip = new MP4Clip(file.stream());
+        url = URL.createObjectURL(file);
     }
     else {
-        const res = await fetch(source);
-        clip = new MP4Clip(res.body!);
+        url = source;
     }
-    await clip.ready;
-    const { width, height } = clip.meta;
-    clip.destroy();
-    return { width, height };
+
+    const videoEl = document.createElement('video');
+    videoEl.src = url;
+    videoEl.preload = 'metadata';
+    await new Promise((resolve) => {
+        videoEl.onloadedmetadata = resolve;
+    });
+
+    const { videoWidth, videoHeight } = videoEl;
+    videoEl.src = '';
+    if (url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+    }
+
+    mark(PerformanceMark.MeasureVideoSizeEnd);
+    return { width: videoWidth, height: videoHeight };
 }
 
 export async function measureImageSize(source: File | string) {
@@ -353,21 +366,31 @@ export async function measureImageSize(source: File | string) {
  * @returns
  */
 export async function measureVideoDuration(source: File | string) {
-    let clip: MP4Clip;
+    let url: string;
     if (source instanceof File) {
-        clip = new MP4Clip(source.stream());
+        url = URL.createObjectURL(source);
     }
     else if (source.startsWith('data:')) {
         const file = base64ToFile(source, 'video.mp4', 'video/mp4');
-        clip = new MP4Clip(file.stream());
+        url = URL.createObjectURL(file);
     }
     else {
-        const res = await fetch(source);
-        clip = new MP4Clip(res.body!);
+        url = source;
     }
-    await clip.ready;
-    const { duration } = clip.meta;
-    clip.destroy();
+
+    const videoEl = document.createElement('video');
+    videoEl.src = url;
+    videoEl.preload = 'metadata';
+    await new Promise((resolve) => {
+        videoEl.onloadedmetadata = resolve;
+    });
+
+    const { duration } = videoEl;
+    videoEl.src = '';
+    if (url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+    }
+
     return duration;
 }
 
@@ -377,21 +400,31 @@ export async function measureVideoDuration(source: File | string) {
  * @returns
  */
 export async function measureAudioDuration(source: File | string) {
-    let clip: AudioClip;
+    let url: string;
     if (source instanceof File) {
-        clip = new AudioClip(source.stream());
+        url = URL.createObjectURL(source);
     }
     else if (source.startsWith('data:')) {
         const file = base64ToFile(source, 'audio.mp3', 'audio/mpeg');
-        clip = new AudioClip(file.stream());
+        url = URL.createObjectURL(file);
     }
     else {
-        const res = await fetch(source);
-        clip = new AudioClip(res.body!);
+        url = source;
     }
-    await clip.ready;
-    const { duration } = clip.meta;
-    clip.destroy();
+
+    const audioEl = document.createElement('audio');
+    audioEl.src = url;
+    audioEl.preload = 'metadata';
+    await new Promise((resolve) => {
+        audioEl.onloadedmetadata = resolve;
+    });
+
+    const { duration } = audioEl;
+    audioEl.src = '';
+    if (url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+    }
+
     return duration;
 }
 
@@ -598,18 +631,58 @@ export function pcmToWav(pcmData: Float32Array[], sampleRate = 44100) {
  * @param clips
  * @returns
  */
-export async function exportBlobOffscreen(clips: Array<MP4Clip | ImgClip | AudioClip>) {
+export async function exportBlobOffscreen(clips: Array<MP4Clip | ImgClip | AudioClip>, options?: {
+    type?: string;
+    size?: {
+        width: number;
+        height: number;
+    };
+    /** 主素材索引，最终导出的视频时长以该素材的时长为duration，多余的部分被截断 */
+    main?: number;
+}) {
+    const {
+        type = 'video/mp4',
+        size,
+        main,
+    } = options || {};
+
+    let width, height;
+    if (size) {
+        width = size.width;
+        height = size.height;
+    }
+    else if (typeof main === 'number' && clips[main] && (clips[main] instanceof MP4Clip || clips[main] instanceof ImgClip)) {
+        const mainClip = clips[main];
+        await mainClip.ready;
+        width = mainClip.meta.width;
+        height = mainClip.meta.height;
+    }
+    else if (clips.some(clip => clip instanceof MP4Clip || clip instanceof ImgClip)) {
+        const mainClip = clips.find(clip => clip instanceof MP4Clip || clip instanceof ImgClip)!;
+        await mainClip.ready;
+        width = mainClip.meta.width;
+        height = mainClip.meta.height;
+    }
+
     let offsetTime = 0;
-    const com = new Combinator();
+    const com = new Combinator({ width, height });
     for (const clip of clips) {
         await clip.ready;
         const spr = new OffscreenSprite(clip);
+
         spr.time.offset = offsetTime;
         offsetTime += clip.meta.duration;
-        if (clip instanceof AudioClip) {
-            spr.rect.x = -1000;
+
+        if (width && height && (clip instanceof MP4Clip || clip instanceof ImgClip)) {
+            const calcRect = autoFitRect({ width, height }, clip.meta, 'contain');
+            Object.assign(spr.rect, calcRect);
         }
-        await com.addSprite(spr);
+
+        if (clip instanceof AudioClip) {
+            spr.rect.y = -1000;
+        }
+
+        await com.addSprite(spr, { main: typeof main === 'number' && clip === clips[main] });
     }
     const readable = com.output();
     const reader = readable.getReader();
@@ -621,7 +694,7 @@ export async function exportBlobOffscreen(clips: Array<MP4Clip | ImgClip | Audio
         }
         chunks.push(value);
     }
-    const blob = new Blob(chunks, { type: 'video/mp4' });
+    const blob = new Blob(chunks, { type });
     com.destroy();
     return blob;
 }
@@ -653,15 +726,20 @@ export async function mp4BlobToWavBlob(mp4Blob: Blob): Promise<Blob> {
     return wavBlob;
 }
 
-export async function mp4ClipToFramesData(mp4Clip: MP4Clip): Promise<{ pcm: [Float32Array, Float32Array]; frames: { video: VideoFrame, ts: number }[] }> {
+export async function mp4ClipToFramesData(
+    mp4Clip: MP4Clip,
+    iteratorCallback?: (data: { video: VideoFrame, ts: number, index: number }) => void,
+    step = 16000 // 16ms steps in microseconds
+): Promise<{ pcm: [Float32Array, Float32Array]; frames: { video: VideoFrame, ts: number }[] }> {
+    mark(PerformanceMark.ConvertMP4ClipToFramesStart);
     const clip = await mp4Clip.clone();
     await clip.ready;
 
     // Extract all PCM data from the MP4Clip
     const pcmData: Float32Array[][] = [];
     const frames: { video: VideoFrame, ts: number }[] = [];
-    const step = 10000; // 10ms steps in microseconds
 
+    let index = 0;
     for (let time = 0; time < clip.meta.duration; time += step) {
         const { audio, video } = await clip.tick(time);
         if (audio && audio.length > 0) {
@@ -669,7 +747,11 @@ export async function mp4ClipToFramesData(mp4Clip: MP4Clip): Promise<{ pcm: [Flo
         }
         if (video) {
             frames.push({ video, ts: time });
+            if (iteratorCallback) {
+                iteratorCallback({ video, ts: time, index });
+            }
         }
+        index++;
     }
 
     // Concatenate all PCM fragments
@@ -685,6 +767,7 @@ export async function mp4ClipToFramesData(mp4Clip: MP4Clip): Promise<{ pcm: [Flo
     }
 
     clip.destroy();
+    mark(PerformanceMark.ConvertMP4ClipToFramesEnd);
 
     return {
         pcm: [leftChannelPCM, rightChannelPCM],
@@ -703,6 +786,7 @@ export async function mp4ClipToAudioClip(mp4Clip: MP4Clip): Promise<AudioClip> {
 }
 
 export async function createImageFromVideoFrame(videoFrame: VideoFrame, options: { width?: number, height?: number }): Promise<Blob> {
+    mark(PerformanceMark.GenImageFromVideoFrameStart);
     const canvas = document.createElement('canvas');
     const aspectRatio = videoFrame.codedWidth / videoFrame.codedHeight;
     const { width, height } = options;
@@ -726,9 +810,6 @@ export async function createImageFromVideoFrame(videoFrame: VideoFrame, options:
     // Get image data as a Blob (e.g., for saving or further processing)
     // @ts-ignore
     const blob: Blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    mark(PerformanceMark.GenImageFromVideoFrameEnd);
     return blob;
-
-    // Alternatively, get image data as a base64 string
-    // const dataURL = canvas.toDataURL('image/png');
-    // return dataURL;
 }
