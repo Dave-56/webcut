@@ -20,16 +20,16 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install -g pnpm
       - run: pnpm install --verbose
-      - run: pnpm release
-      - run: npx can-npm-publish
       - run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      - run: pnpm release
       - uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: main
           tags: true
+      - run: npx can-npm-publish
       - run: pnpm run build
       - run: npm publish --provenance --access public
         env:
