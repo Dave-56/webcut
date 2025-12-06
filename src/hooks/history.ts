@@ -8,7 +8,7 @@ import { clone } from 'ts-fns';
 const historyMachines = new Map<string, HistoryMachine>();
 
 export function useWebCutHistory() {
-    const { id: projectId, rails, sources, canUndo, canRedo, canvas, selected, current, clips, sprites, cursorTime } = useWebCutContext();
+    const { id: projectId, rails, sources, canUndo, canRedo, canvas, selected, current, clips, sprites, cursorTime, updateByAspectRatio } = useWebCutContext();
     const { push: pushToPlayer } = useWebCutPlayer();
 
     // 创建历史记录管理器实例
@@ -20,15 +20,14 @@ export function useWebCutHistory() {
 
     // 是否有项目状态可以恢复
     const canRecover = ref(false);
-    const historyStateToRecover = ref<WebCutProjectHistoryState | null>(null);
+    const dataToRecover = ref<Awaited<ReturnType<HistoryMachine['init']>> | null>(null);
 
     // 初始化历史记录
     onMounted(async () => {
         const savedData = await historyMachine.init();
         await historyMachine.ready();
         if (savedData?.state) {
-            const { state } = savedData;
-            historyStateToRecover.value = markRaw(state);
+            dataToRecover.value = markRaw(savedData);
             canRecover.value = true;
         }
         canUndo.value = historyMachine.canUndo();
@@ -128,12 +127,16 @@ export function useWebCutHistory() {
         }
         isRecovered = true;
 
-        const projectState = historyStateToRecover.value;
+        const projectState = dataToRecover.value;
         if (!projectState) {
             return;
         }
 
-        await recoverHistory(projectState);
+        const { aspectRatio, state } = projectState;
+        await recoverHistory(state);
+        if (aspectRatio) {
+            updateByAspectRatio(aspectRatio);
+        }
     }
 
     // 撤销操作

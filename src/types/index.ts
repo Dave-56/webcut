@@ -198,6 +198,12 @@ export type WebCutSourceData = Omit<WebCutSource, 'clip' | 'sprite'> & {
     },
 };
 
+/** 项目状态数据，存在数据库中 */
+export type WebCutProjectState = {
+    historyAt: string;
+    aspectRatio: string;
+};
+
 export type WebCutProjectHistoryState = {
     rails: WebCutRail[];
     sources: Record<string, WebCutSourceData>;

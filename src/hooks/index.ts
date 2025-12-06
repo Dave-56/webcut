@@ -13,8 +13,9 @@ import { isEmpty, createRandomString, clone, assign } from 'ts-fns';
 import { measureAudioDuration, measureVideoDuration, mp4BlobToWavBlob, renderTxt2ImgBitmap } from '../libs';
 import { WebCutHighlightOfText, WebCutMaterialMeta } from '../types';
 import { autoFitRect, measureVideoSize, measureImageSize } from '../libs';
-import { readFile, writeFile } from '../db';
+import { readFile, updateProjectState, writeFile } from '../db';
 import { PerformanceMark, mark } from '../libs/performance';
+import { aspectRatioMap } from '../constants';
 
 let context: WebCutContext | null | undefined = null;
 export function useWebCutContext(providedContext?: () => Partial<WebCutContext> | undefined | null) {
@@ -69,7 +70,7 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         context = null;
     }, 0);
 
-    const { sprites, status, cursorTime, fps, selected, current, rails, sources } = refs;
+    const { id, sprites, status, cursorTime, fps, selected, current, rails, sources, width, height } = refs;
 
     // 总时长，纳秒，1000*1000=1秒
     const duration = ref(0);
@@ -180,6 +181,34 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         return source;
     });
 
+    async function updateByAspectRatio(aspectRatio: keyof typeof aspectRatioMap) {
+        const { w, h } = aspectRatioMap[aspectRatio];
+        // 更新宽度和高度
+        width.value = w;
+        height.value = h;
+        await updateProjectState(id.value, { aspectRatio });
+    }
+
+    /**
+     * 根据宽度和高度计算最接近的长宽比
+     * @param width
+     * @param height
+     * @returns
+     */
+    function calcByAspectRatio(width: number, height: number) {
+        // 监听宽度和高度变化，更新长宽比
+        // 通过长宽比进行计算，找到最接近的比例
+        const ratios = Object.keys(aspectRatioMap);
+        const values = ratios.map(item => item.split(':').map(v => +v)).map(([w, h]) => w/h);
+        const target = width / height;
+        const closestIndex = ratios.reduce((acc, _, i) => {
+            const diff = Math.abs(target - values[i]);
+            return diff < Math.abs(target - values[acc]) ? i : acc;
+        }, 0);
+        const closestRatio = ratios[closestIndex];
+        return closestRatio;
+    }
+
     return {
         ...refs,
         duration,
@@ -193,6 +222,8 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         currentRail,
         currentSegment,
         currentSource,
+        updateByAspectRatio,
+        calcByAspectRatio,
     };
 }
 

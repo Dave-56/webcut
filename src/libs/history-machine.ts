@@ -1,5 +1,6 @@
 import { WebCutProjectHistoryData, WebCutProjectHistoryState } from '../types';
 import { pushProjectHistory, getProjectHistory, clearProjectHistory, moveProjectHistoryTo, getProjectState } from '../db';
+import { aspectRatioMap } from '../constants';
 
 // 历史记录管理器类
 export class HistoryMachine {
@@ -11,7 +12,7 @@ export class HistoryMachine {
     private isInitializing: boolean = false;
     private isInitialized: boolean = false;
     private isReadyResolve: any = null;
-    private isReady = new Promise<WebCutProjectHistoryData>(r => this.isReadyResolve = r);
+    private isReady = new Promise<{ aspectRatio: keyof typeof aspectRatioMap, state: WebCutProjectHistoryState }>(r => this.isReadyResolve = r);
 
     constructor(projectId: string) {
         this.projectId = projectId;
@@ -33,19 +34,24 @@ export class HistoryMachine {
     }
 
     // 初始化，从数据库加载历史记录，并且在有存储的当前项目状态时，返回该状态
-    async init(): Promise<WebCutProjectHistoryData | null> {
+    async init(): Promise<Awaited<typeof this.isReady> | null> {
         if (this.isInitialized || this.isInitializing) {
             return await this.ready();
         }
 
         this.isInitializing = true;
 
-        let currentHistory: any;
+        let currentHistory: WebCutProjectHistoryData | null = null;
         try {
             const savedState = await getProjectState(this.projectId);
             if (savedState) {
-                currentHistory = await this.updateCurrent(savedState.historyAt);
-                this.isReadyResolve(currentHistory);
+                const { aspectRatio, historyAt } = savedState;
+                currentHistory = await this.updateCurrent(historyAt);
+                const state = currentHistory.state;
+                this.isReadyResolve({
+                    aspectRatio,
+                    state,
+                });
             }
         }
         catch (error) {}

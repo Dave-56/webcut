@@ -4,7 +4,7 @@ import { write, file } from 'opfs-tools'; // https://github.com/hughfenghen/opfs
 import { createRandomString } from 'ts-fns';
 import { getFileMd5 } from '../libs/file';
 import { AsyncQueue } from '../libs/async-queue';
-import { WebCutProjectHistoryData, WebCutProjectHistoryState } from '../types';
+import { WebCutProjectHistoryData, WebCutProjectHistoryState, WebCutProjectState } from '../types';
 
 const queue = new AsyncQueue();
 
@@ -194,19 +194,29 @@ export async function getAllFiles() {
  * @param projectId 项目ID
  * @param state 项目状态
  */
-export async function updateProjectState(projectId: string, state: { historyAt: string }) {
+export async function updateProjectState(projectId: string, state: Partial<WebCutProjectState>) {
     if (!projectId || !state) {
         return;
     }
 
-    const { historyAt } = state;
-    if (!historyAt) {
-        return;
+    let neeedToUpdate = false;
+    const data: any = {};
+    if (state.historyAt) {
+        data.historyAt = state.historyAt;
+        neeedToUpdate = true;
+    }
+    if (state.aspectRatio) {
+        data.aspectRatio = state.aspectRatio;
+        neeedToUpdate = true;
     }
 
-    const prevState = await getProjectState(projectId) || {};
-    prevState.historyAt = historyAt;
-    await projectStateStorage.setItem(projectId, prevState);
+    if (neeedToUpdate) {
+        const prevState = await getProjectState(projectId) || {};
+        await projectStateStorage.setItem(projectId, {
+            ...prevState,
+            ...data,
+        });
+    }
 }
 
 /**
@@ -311,10 +321,11 @@ export async function clearProjectHistory(projectId: string) {
     }
 }
 
-export async function getProjectState(projectId: string): Promise<{ historyAt: string }> {
+export async function getProjectState(projectId: string): Promise<WebCutProjectState> {
     if (!projectId) {
         return {
             historyAt: '',
+            aspectRatio: '4:3',
         };
     }
     const projectState = await projectStateStorage.getItem(projectId);
