@@ -29,7 +29,7 @@ const props = defineProps<{
 
 const { sources, scale } = useWebCutContext();
 const { timeToPx, deleteSegment } = useWebCutManager();
-const { pushHistory } = useWebCutHistory();
+const { push: pushHistory } = useWebCutHistory();
 const scrollBox = useScrollBox();
 
 const thumbnails = ref<{ url: string; left: number }[]>([]);
@@ -207,14 +207,8 @@ const contextmenus = computed(() => [
 
 async function handleSelectContextMenu(key: string) {
     if (key === 'delete') {
-        await pushHistory({
-            action: 'materialDeleted',
-            deletedFromRailId: props.rail.id,
-            deletedSegmentId: props.segment.id,
-            materialType: 'video',
-            sourceKey: props.segment.sourceKey,
-        });
         deleteSegment({ segment: props.segment, rail: props.rail });
+        await pushHistory();
     } else if (key === 'export') {
         try {
             const sourceInfo = sources.value.get(props.segment.sourceKey);
@@ -294,7 +288,7 @@ onMounted(() => {
     top: 0;
     height: var(--thumb-img-height);
     background-repeat: repeat-x;
-    background-size: contain;
+    background-size: auto 100%;
 }
 .webcut-video-segment-bottom {
     width: 100%;

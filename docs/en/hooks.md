@@ -56,4 +56,4 @@ Key types in `src/types/index.ts`:
 - `WebCutContext` — editor state
 - `WebCutRail`, `WebCutSegment` — timeline data
 - `WebCutMaterialMeta` — push options
-- `WebCutSource`, `WebCutSourceMeta` — source mapping and persistence
+- `WebCutSource`, `WebCutSourceData` — source mapping and persistence

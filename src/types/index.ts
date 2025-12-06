@@ -174,7 +174,7 @@ export type WebCutSource = {
 };
 
 // 将source数据化，用于存储到db
-export type WebCutSourceMeta = Omit<WebCutSource, 'clip' | 'sprite'> & {
+export type WebCutSourceData = Omit<WebCutSource, 'clip' | 'sprite'> & {
     sprite: {
         time: VisibleSprite['time'];
         rect: {
@@ -195,42 +195,18 @@ export type WebCutSourceMeta = Omit<WebCutSource, 'clip' | 'sprite'> & {
     },
 };
 
-export type WebCutHistoryState =
-    | {
-        // 添加素材
-        action: 'materialAdded';
-        // 素材添加到的轨道 ID
-        addedwithRailId: string;
-        // 素材添加后的片段 ID，undo时删除该片段
-        addedSegmentId: string;
-        materialType: WebCutMaterialType;
-        sourceKey: string;
-        fileId?: string;
-        url?: string;
-        text?: string;
-    }
-    | {
-        action: 'materialDeleted';
-        // 素材删除的轨道 ID
-        deletedFromRailId: string;
-        // 素材删除的片段 ID
-        deletedSegmentId: string;
-        deletedSegmentData: WebCutSegment;
-        materialType: WebCutMaterialType;
-        sourceKey: string;
-        sourceMeta: WebCutSourceMeta;
-    }
-    | {
-        action: 'materialChanged';
-        // 素材修改的轨道 ID
-        changedRailId: string;
-        // 素材修改的片段 ID
-        changedSegmentId: string;
-        materialType: WebCutMaterialType;
-        sourceKey: string;
-        // 被修改前素材的元数据，恢复时，需要根据该元数据，重新添加素材
-        materialMeta: Record<string, any>;
-    };
+/** 项目状态数据，存在数据库中 */
+export type WebCutProjectHistoryState = {
+    rails: WebCutRail[];
+    sources: Record<string, WebCutSourceData>;
+};
+
+export type WebCutProjectHistoryData = {
+    id: string;
+    projectId: string;
+    timestamp: number;
+    state: WebCutProjectHistoryState;
+}
 
 export interface WebCutColors {
     primaryColor: string,

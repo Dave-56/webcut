@@ -1,20 +1,15 @@
-import { onMounted, watch, ref, computed } from 'vue';
+import { onMounted, ref, markRaw } from 'vue';
 import { useWebCutContext } from './index';
 import { useWebCutPlayer } from './index';
 import { HistoryMachine } from '../libs/history-machine';
-import { WebCutSourceMeta, WebCutSource, WebCutSegment } from '../types';
-import { clone, debounce } from 'ts-fns';
-import { setProjectState } from '../db';
-import { action } from 'fods';
-import { useWebCutManager } from './manager';
+import { WebCutSourceData, WebCutSource, WebCutSegment, WebCutProjectHistoryState } from '../types';
+import { clone } from 'ts-fns';
 
-const updateProjectState = action((projectId: string, state: any) => setProjectState(projectId, state));
 const historyMachines = new Map<string, HistoryMachine>();
 
 export function useWebCutHistory() {
-    const { id: projectId, rails, sources, canUndo, canRedo } = useWebCutContext();
-    const { push } = useWebCutPlayer();
-    const { deleteSegment } = useWebCutManager();
+    const { id: projectId, rails, sources, canUndo, canRedo, canvas, selected, current, clips, sprites, cursorTime } = useWebCutContext();
+    const { push: pushToPlayer } = useWebCutPlayer();
 
     // 创建历史记录管理器实例
     let historyMachine = historyMachines.get(projectId.value)!;
@@ -23,42 +18,25 @@ export function useWebCutHistory() {
         historyMachines.set(projectId.value, historyMachine);
     }
 
-    const savedProjectState = ref<any>();
-
     // 是否有项目状态可以恢复
-    const canRecover = computed(() => {
-        return !!savedProjectState.value;
-    });
+    const canRecover = ref(false);
+    const historyStateToRecover = ref<WebCutProjectHistoryState | null>(null);
 
     // 初始化历史记录
     onMounted(async () => {
-        if (!historyMachine.isInitialized) {
-            await historyMachine.init();
+        const savedData = await historyMachine.init();
+        await historyMachine.ready();
+        if (savedData?.state) {
+            const { state } = savedData;
+            historyStateToRecover.value = markRaw(state);
+            canRecover.value = true;
         }
-        savedProjectState.value = historyMachine.projectState;
         canUndo.value = historyMachine.canUndo();
         canRedo.value = historyMachine.canRedo();
     });
 
-    watch([sources, rails], debounce(async ([newSources, newRails]) => {
-        if (!historyMachine.isInitialized) {
-            return;
-        }
-        try {
-            const rails = clone(newRails);
-            const sources: any = {};
-            for (const [key, source] of newSources.entries()) {
-                const meta = convertSource(source);
-                sources[key] = meta;
-            }
-            await updateProjectState(projectId.value, { rails, sources });
-        } catch (e) {
-            console.error(e);
-        }
-    }, 500), { deep: true });
-
     // 将source转换为source meta便于存储
-    function convertSource(source: WebCutSource): WebCutSourceMeta {
+    function convertSource(source: WebCutSource): WebCutSourceData {
         return {
             ...source,
             meta: clone(source.meta),
@@ -83,11 +61,11 @@ export function useWebCutHistory() {
         };
     }
 
-    async function recoverSegment(source: WebCutSourceMeta, segment: WebCutSegment, railId: string) {
+    async function recoverSegment(source: WebCutSourceData, segment: WebCutSegment, railId: string) {
         const { sourceKey } = segment;
         const { type, fileId, url, text, sprite, meta } = source;
         const src = fileId ? `file:${fileId}` : url || text || '';
-        await push(type as any, src, {
+        await pushToPlayer(type as any, src, {
             id: sourceKey,
             rect: sprite.rect,
             time: {
@@ -106,24 +84,23 @@ export function useWebCutHistory() {
         });
     }
 
-    // 整个组件只能执行一次，避免重复执行
-    let isRecovered = false;
-    async function recoverProjectState() {
-        if (isRecovered) {
-            return;
-        }
-        isRecovered = true;
+    async function recoverHistory(historyState: WebCutProjectHistoryState) {
+        // 先清空当前画布全部
+        sources.value.forEach(({ clip, sprite }) => {
+            canvas.value?.removeSprite(sprite);
+            sprite.destroy();
+            clip.destroy();
+        });
+        sources.value.clear();
+        rails.value = [];
+        clips.value = [];
+        sprites.value = [];
+        selected.value = [];
+        current.value = null;
+        cursorTime.value = 0;
 
-        await historyMachine.init();
-
-        const projectState = savedProjectState.value;
-        if (!projectState) {
-            return;
-        }
-
-        const sourcesMap = projectState.sources;
-
-        for (const rail of projectState.rails) {
+        const sourcesMap = historyState.sources;
+        for (const rail of historyState.rails) {
             const { segments } = rail;
             for (const seg of segments) {
                 const { sourceKey } = seg;
@@ -134,88 +111,73 @@ export function useWebCutHistory() {
                 await recoverSegment(source, seg, rail.id);
             }
         }
-    }
-
-    // 保存当前状态到历史记录
-    const pushHistory = async (state: any) => {
-        const { action } = state;
-
-        if (action === 'materialDeleted') {
-            const { deletedFromRailId, deletedSegmentId, sourceKey } = state;
-            const rail = rails.value.find((item) => item.id === deletedFromRailId)!;
-            const seg = rail.segments.find((item) => item.id === deletedSegmentId)!;
-            const source = sources.value.get(sourceKey)!;
-            const deletedSegmentData = clone(seg);
-            const sourceMeta = convertSource(source);
-            const data = {
-                ...state,
-                deletedSegmentData,
-                sourceMeta,
-            };
-            await historyMachine.push(data);
-        }
 
         canUndo.value = historyMachine.canUndo();
         canRedo.value = historyMachine.canRedo();
-    };
+    }
+
+    // 整个组件只能执行一次，避免重复执行
+    let isRecovered = false;
+    async function recover() {
+        if (isRecovered) {
+            return;
+        }
+        isRecovered = true;
+
+        const projectState = historyStateToRecover.value;
+        if (!projectState) {
+            return;
+        }
+
+        await recoverHistory(projectState);
+    }
 
     // 撤销操作
-    const undo = async () => {
+    async function undo() {
         const state = await historyMachine.undo();
         if (!state) {
             return;
         }
-
-        // TODO 根据不同type来决定如何处理
-        if (state.action === 'materialDeleted') {
-            const { sourceMeta, deletedSegmentData, deletedFromRailId } = state;
-            await recoverSegment(sourceMeta, deletedSegmentData, deletedFromRailId);
-        }
-
-        canUndo.value = historyMachine.canUndo();
-        canRedo.value = historyMachine.canRedo();
-    };
+        await recoverHistory(state);
+    }
 
     // 重做操作
-    const redo = async () => {
+    async function redo() {
         const state = await historyMachine.redo();
         if (!state) {
             return;
         }
-
-        // TODO 根据不同type来决定如何处理
-        if (state.action === 'materialDeleted') {
-            const { deletedFromRailId, deletedSegmentId } = state;
-            const rail = rails.value.find((item) => item.id === deletedFromRailId)!;
-            if (!rail) {
-                return;
-            }
-            const segment = rail.segments.find((item) => item.id === deletedSegmentId)!;
-            if (!segment) {
-                return;
-            }
-            deleteSegment({ segment, rail });
-        }
-
-        canUndo.value = historyMachine.canUndo();
-        canRedo.value = historyMachine.canRedo();
-    };
+        await recoverHistory(state);
+    }
 
     // 清除历史记录
-    const clearHistory = async () => {
+    async function clear() {
         await historyMachine.clear();
         canUndo.value = historyMachine.canUndo();
         canRedo.value = historyMachine.canRedo();
-    };
+    }
+
+    async function push() {
+        await historyMachine.ready();
+        const railsData = clone(rails.value);
+        const sourcesData: any = {};
+        for (const [key, source] of sources.value.entries()) {
+            const meta = convertSource(source);
+            sourcesData[key] = meta;
+        }
+        await historyMachine.push({ rails: railsData, sources: sourcesData });
+        canUndo.value = historyMachine.canUndo();
+        canRedo.value = historyMachine.canRedo();
+    }
 
     return {
-        pushHistory,
+        push,
         undo,
         redo,
-        clearHistory,
+        clear,
         canUndo,
         canRedo,
         canRecover,
-        recoverProjectState,
+        recover,
     };
 }

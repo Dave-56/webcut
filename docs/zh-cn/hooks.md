@@ -56,4 +56,4 @@
 - `WebCutContext` — 编辑器状态
 - `WebCutRail`、`WebCutSegment` — 时间线数据
 - `WebCutMaterialMeta` — 推入素材选项
-- `WebCutSource`、`WebCutSourceMeta` — 素材映射与持久化
+- `WebCutSource`、`WebCutSourceData` — 素材映射与持久化

@@ -178,4 +178,4 @@
 - 项目 CRUD、文件 CRUD、历史列表、项目状态读写。
 
 ## 类型（`src/types/index.ts`）
-- `WebCutContext`、`WebCutRail`、`WebCutSegment`、文本类型、素材类型、`WebCutMaterialMeta`、`WebCutSource`、`WebCutSourceMeta`、`WebCutHistoryState`。
+- `WebCutContext`、`WebCutRail`、`WebCutSegment`、文本类型、素材类型、`WebCutMaterialMeta`、`WebCutSource`、`WebCutSourceData`、`WebCutHistoryState`。

@@ -181,4 +181,4 @@ Key utilities from `src/libs/index.ts`:
 - Project CRUD, file CRUD, history list, project state read/write.
 
 ## Types (`src/types/index.ts`)
-- `WebCutContext`, `WebCutRail`, `WebCutSegment`, text types, material types, `WebCutMaterialMeta`, `WebCutSource`, `WebCutSourceMeta`, `WebCutHistoryState`.
+- `WebCutContext`, `WebCutRail`, `WebCutSegment`, text types, material types, `WebCutMaterialMeta`, `WebCutSource`, `WebCutSourceData`, `WebCutHistoryState`.
