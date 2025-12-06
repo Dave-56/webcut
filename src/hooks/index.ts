@@ -523,6 +523,15 @@ export function useWebCutPlayer() {
         if (meta.flip) {
             spr.flip = meta.flip;
         }
+        if (meta.opacity) {
+            spr.opacity = meta.opacity;
+        }
+        if (meta.visible !== undefined) {
+            spr.visible = meta.visible;
+        }
+        if (meta.interactable !== undefined) {
+            spr.interactable = meta.interactable;
+        }
 
         sprites.value.push(markRaw(spr));
 

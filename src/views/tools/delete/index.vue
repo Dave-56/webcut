@@ -8,7 +8,7 @@ import { useT } from '../../../hooks/i18n';
 
 const { rails, selected, current, sources } = useWebCutContext();
 const { deleteSegment } = useWebCutManager();
-const { pushHistory } = useWebCutHistory();
+const { push: pushHistory } = useWebCutHistory();
 const t = useT();
 
 async function handleDelete() {
@@ -28,13 +28,7 @@ async function handleDelete() {
 
     const source = sources.value.get(segment.sourceKey);
     if (source) {
-        await pushHistory({
-            action: 'materialDeleted',
-            deletedFromRailId: rail.id,
-            deletedSegmentId: segment.id,
-            materialType: source.type,
-            sourceKey: segment.sourceKey,
-        });
+        await pushHistory();
     }
 
     deleteSegment({ segment, rail });

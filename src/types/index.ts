@@ -151,8 +151,11 @@ export type WebCutMaterialMeta = {
         css?: object;
         highlights?: WebCutHighlightOfText[];
     },
-    zIndex?: number;
-    flip?: "horizontal" | "vertical";
+    zIndex?: VisibleSprite['zIndex'];
+    opacity?: VisibleSprite['opacity'];
+    flip?: VisibleSprite['flip'];
+    visible?: VisibleSprite['visible'];
+    interactable?: VisibleSprite['interactable'];
     /** 自动调整视频尺寸到容器内，仅对视频和图片有效，带_scale后缀表示当图片小于视频视口时，会把图片放大以撑满整个视口 */
     autoFitRect?: 'contain' | 'cover' | 'contain_scale' | 'cover_scale';
     /** 添加到指定轨道 */
@@ -195,7 +198,6 @@ export type WebCutSourceData = Omit<WebCutSource, 'clip' | 'sprite'> & {
     },
 };
 
-/** 项目状态数据，存在数据库中 */
 export type WebCutProjectHistoryState = {
     rails: WebCutRail[];
     sources: Record<string, WebCutSourceData>;

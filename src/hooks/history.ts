@@ -74,6 +74,10 @@ export function useWebCutHistory() {
                 playbackRate: sprite.time.playbackRate,
             },
             zIndex: sprite.zIndex,
+            opacity: sprite.opacity,
+            flip: sprite.flip,
+            visible: sprite.visible,
+            interactable: sprite.interactable,
             audio: meta.audio,
             video: meta.video,
             // TODO text的处理比较复杂，需进一步研究，可能需要从seg上获取
