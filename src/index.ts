@@ -134,6 +134,7 @@ export {
     mp4ClipToAudioClip,
     mp4ClipToFramesData,
     createImageFromVideoFrame,
+    progressiveClipToPCMData,
 } from './libs';
 export {
     base64ToFile,
