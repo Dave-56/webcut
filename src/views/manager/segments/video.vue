@@ -144,7 +144,7 @@ async function initThumbnailsAndAudioWave() {
             }
         };
 
-        const { pcm } = await mp4ClipToFramesData(clip as MP4Clip, iteratorCallback, undefined, pcmProgressCallback);
+        const { pcm } = await mp4ClipToFramesData(clip as MP4Clip, { iteratorCallback, pcmProgressCallback });
         const [leftChannelPCM, rightChannelPCM] = pcm;
 
         if (leftChannelPCM) {
@@ -296,7 +296,7 @@ function calcImgWidth(thumb: { left: number }, index: number) {
                 <audio-shape
                     :height="AUDIO_HEIGHT - 4"
                     :width="totalWidth"
-                    :data="audioF32"
+                    :data="source?.fileId || audioF32"
                     :visible-range="visibleRange"
                     class="webcut-video-segment-audio-shape"
                 />

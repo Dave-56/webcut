@@ -287,10 +287,10 @@ export function useWebCutHistory() {
         }
 
         const { aspectRatio, state } = projectState;
-        await recoverHistory(state);
         if (aspectRatio) {
             updateByAspectRatio(aspectRatio);
         }
+        await recoverHistory(state);
     }
 
     // 撤销操作
