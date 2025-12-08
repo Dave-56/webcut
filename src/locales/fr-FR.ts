@@ -107,4 +107,22 @@ export default {
   '缩放': 'Échelle',
   '旋转角度': 'Rotation',
   '不透明度': 'Opacité',
+
+  // Filter Panel
+  '可用滤镜': 'Filtres disponibles',
+  '滤镜参数': 'Paramètres du filtre',
+  '选择滤镜': 'Sélectionner un filtre',
+  '请选择要编辑的滤镜': 'Veuillez sélectionner un filtre à modifier',
+  '强度': 'Intensité',
+  '请选择一个滤镜以调节参数': 'Veuillez sélectionner un filtre pour ajuster les paramètres',
+  'grayscale': 'Niveaux de gris',
+  'blur': 'Flou',
+  'brightness': 'Luminosité',
+  'contrast': 'Contraste',
+  'saturate': 'Saturation',
+  '灰度': 'Niveaux de gris',
+  '模糊': 'Flou',
+  '亮度': 'Luminosité',
+  '对比度': 'Contraste',
+  '饱和度': 'Saturation',
 };

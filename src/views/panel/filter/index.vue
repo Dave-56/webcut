@@ -11,12 +11,12 @@ const { push: pushHistory } = useWebCutHistory();
 const t = useT();
 
 // 内置滤镜列表
-const builtinFilters = ref<string[]>([
-  'grayscale',
-  'blur',
-  'brightness',
-  'contrast',
-  'saturate'
+const builtinFilters = computed<string[]>(() => [
+  t('灰度'),
+  t('模糊'),
+  t('亮度'),
+  t('对比度'),
+  t('饱和度'),
 ]);
 
 // 当前素材的滤镜列表，支持带参数的格式
@@ -156,7 +156,7 @@ function updateFilters(filters: Array<string | { name: string; params?: Record<s
         >
           <div class="webcut-filter-item-thumb">
             <!-- 可以添加滤镜图标，这里暂时用文字 -->
-            <span class="filter-thumb-text">{{ filter.name.charAt(0).toUpperCase() }}</span>
+            <span class="filter-thumb-text"></span>
           </div>
           <div class="webcut-filter-item-name">{{ filter.name }}</div>
         </div>
