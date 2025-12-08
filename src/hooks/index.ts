@@ -1,5 +1,5 @@
 import { inject, toRefs, markRaw, reactive, provide, watch, ref, watchEffect, computed, type ComputedRef, ModelRef, WritableComputedRef } from 'vue';
-import { WebCutColors, WebCutContext } from '../types';
+import { WebCutAnimationData, WebCutAnimationKeyframe, WebCutAnimationType, WebCutColors, WebCutContext, WebCutAnimationPreset, WebCutSource } from '../types';
 import { AVCanvas } from '@webav/av-canvas';
 import {
   AudioClip,
@@ -9,13 +9,14 @@ import {
 } from '@webav/av-cliper';
 import { base64ToFile, downloadBlob } from '../libs/file';
 import { assignNotEmpty } from '../libs/object';
-import { isEmpty, createRandomString, clone, assign } from 'ts-fns';
+import { isEmpty, createRandomString, clone, assign, each } from 'ts-fns';
 import { measureAudioDuration, measureVideoDuration, mp4BlobToWavBlob, renderTxt2ImgBitmap } from '../libs';
 import { WebCutHighlightOfText, WebCutMaterialMeta } from '../types';
 import { autoFitRect, measureVideoSize, measureImageSize } from '../libs';
 import { readFile, updateProjectState, writeFile } from '../db';
 import { PerformanceMark, mark } from '../libs/performance';
 import { aspectRatioMap } from '../constants';
+import { animationPresets } from '../constants/animation';
 
 let context: WebCutContext | null | undefined = null;
 export function useWebCutContext(providedContext?: () => Partial<WebCutContext> | undefined | null) {
@@ -44,6 +45,8 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         current: null,
         canUndo: false,
         canRedo: false,
+        canRecover: false,
+        loading: false,
     };
 
     const providedContextValue = providedContext?.();
@@ -247,6 +250,7 @@ export function useWebCutPlayer() {
         selectSegment,
         unselectSegment,
         currentSource,
+        loading,
     } = refs;
 
     const opts = {
@@ -382,279 +386,381 @@ export function useWebCutPlayer() {
         return blob;
     }
 
+    /**
+     * 将视频流直接导出到 WritableStream
+     * @param writable 目标 WritableStream
+     */
+    async function exportToWritable(writable: WritableStream) {
+        const com = await canvas.value!.createCombinator();
+        const readable = com.output();
+        try {
+            await readable.pipeTo(writable, { preventClose: true });
+        } finally {
+            com.destroy();
+        }
+    }
+
     async function exportAsWavBlob() {
         const mp4Blob = await exportBlob();
         const wavBlob = await mp4BlobToWavBlob(mp4Blob);
         return wavBlob;
     }
 
-    async function push(type: 'video' | 'audio' | 'image' | 'text', source: string | File, meta: WebCutMaterialMeta = {}): Promise<string> {
-        let clip: MP4Clip | ImgClip | AudioClip;
-        let text, fileId, url, file;
-        let segMeta = clone(meta);
-        if (type === 'video') {
-            const volume = meta.video?.volume;
-            const offset = meta.video?.offset;
-            const options = typeof volume === 'undefined' ? {} : typeof volume === 'number' && volume > 0 ? { audio: { volume }} : { audio: false };
-            mark(PerformanceMark.GenVideoClipStart);
-            if (source instanceof File) {
-                file = source;
-                fileId = await writeFile(source);
-                clip = new MP4Clip(source.stream(), options);
-            }
-            else if (source.startsWith('data:')) {
-                file = base64ToFile(source, 'video.mp4', 'video/mp4');
-                fileId = await writeFile(file);
-                clip = new MP4Clip(file.stream(), options);
-            }
-            else if (source.startsWith('file:')) {
-                fileId = source.replace('file:', '');
-                file = await readFile(fileId);
-                if (!file) {
-                    throw new Error('File not found');
+    // 提取tickInterceptor逻辑为独立函数，供外部使用
+    function syncTickInterceptor(clip: MP4Clip | ImgClip | AudioClip, sourceKey: string) {
+        const tickInterceptor = async <T extends Record<string, any>>(_: number, tickRet: T): Promise<T> => {
+            let result = tickRet;
+
+            // 处理视频滤镜
+            if (result.video instanceof VideoFrame) {
+                const originalFrame = result.video;
+                try {
+                    // 通过source.key找到对应的source，获取最新的meta
+                    const sourceInfo = sources.value.get(sourceKey);
+                    const filters = sourceInfo?.meta.filters || [];
+                    if (filters.length > 0) {
+                        const { filterManager } = await import('../filters');
+                        // 处理滤镜配置，分离滤镜名称和参数
+                        const filterKeys: string[] = [];
+                        const filterConfigs: Record<string, any>[] = [];
+                        for (const filterConfig of filters) {
+                            if (typeof filterConfig === 'string') {
+                                filterKeys.push(filterConfig);
+                                filterConfigs.push({});
+                            } else {
+                                filterKeys.push(filterConfig.key);
+                                filterConfigs.push(filterConfig.params || {});
+                            }
+                        }
+                        (result as any).video = await filterManager.applyFilters(originalFrame, filterKeys, filterConfigs);
+                    } else {
+                        (result as any).video = originalFrame.clone();
+                    }
+                } finally {
+                    originalFrame.close();
                 }
-                clip = new MP4Clip(file.stream(), options);
             }
-            else {
-                const res = await fetch(source);
-                url = source;
-                clip = new MP4Clip(res.body!, options);
-            }
-            mark(PerformanceMark.GenVideoClipEnd);
-            if (offset) {
-                const [clip1, clip2] = await clip.split(offset);
-                clip1.destroy();
-                clip = clip2;
-            }
-        }
-        else if (type === 'audio') {
-            const options = meta.audio || {};
-            const offset = meta.audio?.offset;
-            if (source instanceof File) {
-                file = source;
-                fileId = await writeFile(source);
-                clip = new AudioClip(source.stream(), options);
-            }
-            else if (source.startsWith('data:')) {
-                file = base64ToFile(source, 'audio.mp3', 'audio/mpeg');
-                fileId = await writeFile(file);
-                clip = new AudioClip(file.stream(), options);
-            }
-            else if (source.startsWith('file:')) {
-                fileId = source.replace('file:', '');
-                file = await readFile(fileId);
-                if (!file) {
-                    throw new Error('File not found');
+
+            // 处理音频静音
+            if (result.audio && Array.isArray(result.audio)) {
+                // 找到对应的rail，判断是否需要静音
+                let isMuted = false;
+                for (let rail of rails.value) {
+                    const foundSegment = rail.segments.find(segment => segment.sourceKey === sourceKey);
+                    if (foundSegment) {
+                        isMuted = !!rail.mute;
+                        break;
+                    }
                 }
-                clip = new AudioClip(file.stream(), options);
-            }
-            else {
-                const res = await fetch(source);
-                url = source;
-                clip = new AudioClip(res.body!, options);
-            }
-            if (offset) {
-                const [clip1, clip2] = await clip.split(offset);
-                clip1.destroy();
-                clip = clip2;
-            }
-        }
-        else if (type === 'image') {
-            if (source instanceof File) {
-                file = source;
-                fileId = await writeFile(source);
-                clip = new ImgClip(source.stream());
-            }
-            else if (source.startsWith('data:')) {
-                file = base64ToFile(source, 'image.png', 'image/png');
-                fileId = await writeFile(file);
-                clip = new ImgClip(file.stream());
-            }
-            else if (source.startsWith('file:')) {
-                fileId = source.replace('file:', '');
-                file = await readFile(fileId);
-                if (!file) {
-                    throw new Error('File not found');
+
+                if (isMuted) {
+                    result = {
+                        ...result,
+                        audio: [],
+                    };
                 }
-                clip = new ImgClip(file.stream());
             }
-            else {
-                const res = await fetch(source);
-                url = source;
-                clip = new ImgClip(res.body!);
-            }
-        }
-        else if (type === 'text') {
-            const info: Awaited<ReturnType<typeof initTextMaterial>> = await initTextMaterial(source as string, meta.text?.css, segMeta.text?.highlights || []);
-            assign(segMeta, 'text.css', info.css);
-            clip = new ImgClip(info.bitmap);
-            text = source as string;
-        }
-        else {
-            throw new Error(`Unknown type: ${type}`);
-        }
-        clips.value.push(markRaw(clip!));
-        const spr = new VisibleSprite(clip!);
 
-        // 处理rect
-        if (meta.rect) {
-            assignNotEmpty(spr.rect, meta.rect);
-        }
-        // 自动适配
-        else if (meta.autoFitRect && ['image', 'video'].includes(type)) {
-            const src = (file || url) as string;
-            const size = type === 'image' ? await measureImageSize(src) : await measureVideoSize(src);
-            const canvasSize = {
-                width: width.value,
-                height: height.value,
-            };
-            const { w, h, x, y } = autoFitRect(canvasSize, size, meta.autoFitRect);
-            spr.rect.w = w;
-            spr.rect.h = h;
-            spr.rect.x = x;
-            spr.rect.y = y;
-            spr.rect.angle = 0;
-        }
-        if (type === 'audio') {
-            spr.rect.y = -1000000000;
-        }
-
-        // 处理开始时间
-        if (typeof meta.time?.start === 'number') {
-            spr.time.offset = meta.time.start;
-        }
-        // 如果没有设置开始时间，默认以当前指针所在位置为开始时间
-        else {
-            spr.time.offset = cursorTime.value;
-        }
-
-        // 处理时长
-        if (typeof meta.time?.duration === 'number') {
-            spr.time.duration = meta.time.duration;
-        }
-        else if (type === 'video') {
-            const src = (file || url) as string;
-            spr.time.duration = await measureVideoDuration(src) * 1e6;
-        }
-        else if (type === 'audio') {
-            const src = (file || url) as string;
-            spr.time.duration = await measureAudioDuration(src) * 1e6;
-        }
-        else {
-            spr.time.duration = 2 * 1e6;
-        }
-
-        // 处理其他信息
-        if (typeof meta.time?.playbackRate === 'number') {
-            spr.time.playbackRate = meta.time.playbackRate;
-        }
-        if (typeof meta.zIndex === 'number') {
-            spr.zIndex = meta.zIndex;
-        }
-        if (meta.flip) {
-            spr.flip = meta.flip;
-        }
-        if (meta.opacity) {
-            spr.opacity = meta.opacity;
-        }
-        if (meta.visible !== undefined) {
-            spr.visible = meta.visible;
-        }
-        if (meta.interactable !== undefined) {
-            spr.interactable = meta.interactable;
-        }
-
-        sprites.value.push(markRaw(spr));
-
-        const key = meta.id || createRandomString(16);
-
-        const { withRailId, withSegmentId } = meta;
-        const segment = {
-            id: withSegmentId || createRandomString(16),
-            start: spr.time.offset,
-            end:  spr.time.offset + spr.time.duration,
-            sourceKey: key,
+            return result;
         };
-        let railId;
-        // 添加到指定rail
-        if (withRailId && rails.value.some(item => item.id === withRailId)) {
-            const targetRail = rails.value.find(item => item.id === withRailId)!;
-            targetRail.segments.push(segment);
-            railId = withRailId;
-        }
-        /**
-         * 新增或智能选择rail
-         * 注意，此时如果传入withRailId，会以该id为新rail的id，主要用在恢复之前的历史记录时
-         */
-        else {
-            const latestRails = [...rails.value];
-            let rail = latestRails.find(item => item.type === type);
-            if (!rail) {
-                rail = {
-                    id: withRailId || createRandomString(16),
-                    type,
-                    segments: [],
-                };
-                if (type === 'video') {
-                    rail.main = true;
+        clip.tickInterceptor = tickInterceptor;
+
+        const currentTime = cursorTime.value;
+        canvas.value?.previewFrame(currentTime + 1);
+        canvas.value?.previewFrame(currentTime - 1);
+        canvas.value?.previewFrame(currentTime);
+    };
+
+    async function push(type: 'video' | 'audio' | 'image' | 'text', source: string | File, meta: WebCutMaterialMeta = {}): Promise<string> {
+        loading.value = true;
+        try {
+            let clip: MP4Clip | ImgClip | AudioClip;
+            let text, fileId, url, file;
+            let segMeta = clone(meta);
+            if (type === 'video') {
+                const volume = meta.video?.volume;
+                const offset = meta.video?.offset;
+                const options = typeof volume === 'undefined' ? {} : typeof volume === 'number' && volume > 0 ? { audio: { volume }} : { audio: false };
+                mark(PerformanceMark.GenVideoClipStart);
+                if (source instanceof File) {
+                    file = source;
+                    fileId = await writeFile(source);
+                    clip = new MP4Clip(source.stream(), options);
                 }
-                latestRails.push(rail);
+                else if (source.startsWith('data:')) {
+                    file = base64ToFile(source, 'video.mp4', 'video/mp4');
+                    fileId = await writeFile(file);
+                    clip = new MP4Clip(file.stream(), options);
+                }
+                else if (source.startsWith('file:')) {
+                    fileId = source.replace('file:', '');
+                    file = await readFile(fileId);
+                    if (!file) {
+                        throw new Error('File not found');
+                    }
+                    clip = new MP4Clip(file.stream(), options);
+                }
+                else {
+                    const res = await fetch(source);
+                    url = source;
+                    clip = new MP4Clip(res.body!, options);
+                }
+                mark(PerformanceMark.GenVideoClipEnd);
+                if (offset) {
+                    const [clip1, clip2] = await clip.split(offset);
+                    clip1.destroy();
+                    clip = clip2;
+                }
             }
-            // 计算该rail在时间范围[start,end]之间是否存在segment与当前segment有重叠(有交集)，如果有重叠，就新增一个rail，并在当前rail之上
-            const overlap = rail.segments.some(seg => !(segment.end <= seg.start || segment.start >= seg.end));
-            if (overlap) {
-                rail = {
-                    id: withRailId || createRandomString(16),
-                    type,
-                    segments: [],
+            else if (type === 'audio') {
+                const options = meta.audio || {};
+                const offset = meta.audio?.offset;
+                if (source instanceof File) {
+                    file = source;
+                    fileId = await writeFile(source);
+                    clip = new AudioClip(source.stream(), options);
+                }
+                else if (source.startsWith('data:')) {
+                    file = base64ToFile(source, 'audio.mp3', 'audio/mpeg');
+                    fileId = await writeFile(file);
+                    clip = new AudioClip(file.stream(), options);
+                }
+                else if (source.startsWith('file:')) {
+                    fileId = source.replace('file:', '');
+                    file = await readFile(fileId);
+                    if (!file) {
+                        throw new Error('File not found');
+                    }
+                    clip = new AudioClip(file.stream(), options);
+                }
+                else {
+                    const res = await fetch(source);
+                    url = source;
+                    clip = new AudioClip(res.body!, options);
+                }
+                if (offset) {
+                    const [clip1, clip2] = await clip.split(offset);
+                    clip1.destroy();
+                    clip = clip2;
+                }
+            }
+            else if (type === 'image') {
+                if (source instanceof File) {
+                    file = source;
+                    fileId = await writeFile(source);
+                    clip = new ImgClip(source.stream());
+                }
+                else if (source.startsWith('data:')) {
+                    file = base64ToFile(source, 'image.png', 'image/png');
+                    fileId = await writeFile(file);
+                    clip = new ImgClip(file.stream());
+                }
+                else if (source.startsWith('file:')) {
+                    fileId = source.replace('file:', '');
+                    file = await readFile(fileId);
+                    if (!file) {
+                        throw new Error('File not found');
+                    }
+                    clip = new ImgClip(file.stream());
+                }
+                else {
+                    const res = await fetch(source);
+                    url = source;
+                    clip = new ImgClip(res.body!);
+                }
+            }
+            else if (type === 'text') {
+                const info: Awaited<ReturnType<typeof initTextMaterial>> = await initTextMaterial(source as string, meta.text?.css, segMeta.text?.highlights || []);
+                assign(segMeta, 'text.css', info.css);
+                clip = new ImgClip(info.bitmap);
+                text = source as string;
+            }
+            else {
+                throw new Error(`Unknown type: ${type}`);
+            }
+            clips.value.push(markRaw(clip!));
+            const spr = new VisibleSprite(clip!);
+
+            // 处理rect
+            if (meta.rect) {
+                assignNotEmpty(spr.rect, meta.rect);
+            }
+            // 自动适配
+            else if (meta.autoFitRect && ['image', 'video'].includes(type)) {
+                const src = (file || url) as string;
+                const size = type === 'image' ? await measureImageSize(src) : await measureVideoSize(src);
+                const canvasSize = {
+                    width: width.value,
+                    height: height.value,
                 };
-                latestRails.push(rail);
+                const { w, h, x, y } = autoFitRect(canvasSize, size, meta.autoFitRect);
+                spr.rect.w = w;
+                spr.rect.h = h;
+                spr.rect.x = x;
+                spr.rect.y = y;
+                spr.rect.angle = 0;
             }
-            rail.segments.push(segment);
+            if (type === 'audio') {
+                spr.rect.y = -1000000000;
+            }
 
-            const audioRails = latestRails.filter(item => item.type === 'audio');
-            const otherRails = latestRails.filter(item => item.type !== 'audio');
-            // 对rails进行重排，audio类型放在main的下方，其他类型放在main的上方
-            // const otherRails = latestRails.filter(item => item.type !== 'audio' && !item.main);
-            // const mainRail = latestRails.find(item => item.main);
-            // const finalRails = [...audioRails];
-            // if (mainRail) {
-            //     finalRails.push(mainRail);
-            // }
-            // finalRails.push(...otherRails);
-            rails.value = [...audioRails, ...otherRails];
-            railId = rail.id;
+            // 处理开始时间
+            if (typeof meta.time?.start === 'number') {
+                spr.time.offset = meta.time.start;
+            }
+            // 如果没有设置开始时间，默认以当前指针所在位置为开始时间
+            else {
+                spr.time.offset = cursorTime.value;
+            }
+
+            // 处理时长
+            if (typeof meta.time?.duration === 'number') {
+                spr.time.duration = meta.time.duration;
+            }
+            else if (type === 'video') {
+                const src = (file || url) as string;
+                spr.time.duration = await measureVideoDuration(src) * 1e6;
+            }
+            else if (type === 'audio') {
+                const src = (file || url) as string;
+                spr.time.duration = await measureAudioDuration(src) * 1e6;
+            }
+            else {
+                spr.time.duration = 2 * 1e6;
+            }
+
+            // 处理其他信息
+            if (typeof meta.time?.playbackRate === 'number') {
+                spr.time.playbackRate = meta.time.playbackRate;
+            }
+            if (typeof meta.zIndex === 'number') {
+                spr.zIndex = meta.zIndex;
+            }
+            if (meta.flip) {
+                spr.flip = meta.flip;
+            }
+            if (meta.opacity) {
+                spr.opacity = meta.opacity;
+            }
+            if (meta.visible !== undefined) {
+                spr.visible = meta.visible;
+            }
+            if (meta.interactable !== undefined) {
+                spr.interactable = meta.interactable;
+            }
+
+            // 将rect固定到meta上，后续animation中需要用到
+            segMeta.rect = Object.assign(clone(meta.rect || {}), {
+                x: spr.rect.x,
+                y: spr.rect.y,
+                w: spr.rect.w,
+                h: spr.rect.h,
+                angle: spr.rect.angle,
+            });
+
+            sprites.value.push(markRaw(spr));
+
+            const key = meta.id || createRandomString(16);
+
+            // 添加滤镜tickInterceptor
+            syncTickInterceptor(clip!, key);
+
+            const { withRailId, withSegmentId } = meta;
+            const segment = {
+                id: withSegmentId || createRandomString(16),
+                start: spr.time.offset,
+                end:  spr.time.offset + spr.time.duration,
+                sourceKey: key,
+            };
+            let railId;
+            // 添加到指定rail
+            if (withRailId && rails.value.some(item => item.id === withRailId)) {
+                const targetRail = rails.value.find(item => item.id === withRailId)!;
+                targetRail.segments.push(segment);
+                railId = withRailId;
+            }
+            /**
+             * 新增或智能选择rail
+             * 注意，此时如果传入withRailId，会以该id为新rail的id，主要用在恢复之前的历史记录时
+             */
+            else {
+                const latestRails = [...rails.value];
+                let rail = latestRails.find(item => item.type === type);
+                if (!rail) {
+                    rail = {
+                        id: withRailId || createRandomString(16),
+                        type,
+                        segments: [],
+                    };
+                    if (type === 'video') {
+                        rail.main = true;
+                    }
+                    latestRails.push(rail);
+                }
+                // 计算该rail在时间范围[start,end]之间是否存在segment与当前segment有重叠(有交集)，如果有重叠，就新增一个rail，并在当前rail之上
+                const overlap = rail.segments.some(seg => !(segment.end <= seg.start || segment.start >= seg.end));
+                if (overlap) {
+                    rail = {
+                        id: withRailId || createRandomString(16),
+                        type,
+                        segments: [],
+                    };
+                    latestRails.push(rail);
+                }
+                rail.segments.push(segment);
+
+                const audioRails = latestRails.filter(item => item.type === 'audio');
+                const otherRails = latestRails.filter(item => item.type !== 'audio');
+                // 对rails进行重排，audio类型放在main的下方，其他类型放在main的上方
+                // const otherRails = latestRails.filter(item => item.type !== 'audio' && !item.main);
+                // const mainRail = latestRails.find(item => item.main);
+                // const finalRails = [...audioRails];
+                // if (mainRail) {
+                //     finalRails.push(mainRail);
+                // }
+                // finalRails.push(...otherRails);
+                rails.value = [...audioRails, ...otherRails];
+                railId = rail.id;
+            }
+
+            // 记录对应关系，方便后面删除
+            const sourceMeta = reactive(segMeta);
+            sources.value.set(key, {
+                key,
+                type,
+                clip: clip!,
+                sprite: spr,
+                text,
+                fileId,
+                url,
+                segmentId: segment.id,
+                railId,
+                meta: sourceMeta,
+            });
+
+            if (type === 'video') {
+                mark(PerformanceMark.VideoSpriteAddStart);
+            }
+            await canvas.value?.addSprite(spr);
+            if (type === 'video') {
+                mark(PerformanceMark.VideoSpriteAddEnd);
+            }
+
+            // 应用动画（如果有的话），注意，它必须在sprite和source都存在的情况下才能执行
+            if (meta.animation) {
+                applyAnimation(key, meta.animation);
+            }
+
+            // TODO 监听spr，当属性发生变化时，更新sourceMeta
+
+            if (type === 'video') {
+                mark(PerformanceMark.VideoSegmentAdded);
+            }
+
+            return key;
+        } finally {
+            loading.value = false;
         }
-
-        // 记录对应关系，方便后面删除
-        const sourceMeta = reactive(segMeta);
-        sources.value.set(key, {
-            type,
-            clip: clip!,
-            sprite: spr,
-            text,
-            fileId,
-            url,
-            segmentId: segment.id,
-            railId,
-            meta: sourceMeta,
-        });
-
-        if (type === 'video') {
-            mark(PerformanceMark.VideoSpriteAddStart);
-        }
-        await canvas.value?.addSprite(spr);
-        if (type === 'video') {
-            mark(PerformanceMark.VideoSpriteAddEnd);
-        }
-
-        // TODO 监听spr，当属性发生变化时，更新sourceMeta
-
-        if (type === 'video') {
-            mark(PerformanceMark.VideoSegmentAdded);
-        }
-
-        return key;
     }
 
     function remove(key: string) {
@@ -857,6 +963,169 @@ export function useWebCutPlayer() {
      * 移动到指定时间，展示对应的画面
      * @param time 时间，单位：纳秒
      */
+    /**
+     * 应用动画到指定的 sprite
+     * @param sprite 目标 sprite
+     * @param animation 动画配置
+     */
+    function applyAnimation(sourceKey: string, animation: Pick<WebCutAnimationData, 'type' | 'key'> & Partial<Pick<WebCutAnimationData, 'duration' | 'delay' | 'iterCount'>> | null) {
+        if (!sourceKey) {
+            return;
+        }
+
+        const source = sources.value.get(sourceKey);
+        if (!source) {
+            return;
+        }
+
+        const { sprite, meta, railId, segmentId } = source;
+        if (!sprite) {
+            return;
+        }
+
+        // 如果没有动画，清除现有动画并重置
+        if (!animation || animation.duration === 0) {
+            sprite.setAnimation({}, { duration: 0 });
+            meta.animation = null;
+            Object.assign(sprite.rect, meta.rect);
+            sprite.opacity = meta.opacity || 1;
+            return;
+        }
+
+        let { type, duration = 0, delay = 0, iterCount, key } = animation;
+
+        // 从预设中获取keyframe
+        const preset = animationPresets.find(p => p.key === key);
+        if (!preset) {
+            return;
+        }
+
+        const {
+            defaultKeyframe = {},
+            defaultDuration,
+            defaultIterCount,
+        } = preset || {};
+
+        const rail = rails.value.find(r => r.id === railId);
+        if (!rail) {
+            return;
+        }
+        const segment = rail.segments.find(s => s.id === segmentId);
+        if (!segment) {
+            return;
+        }
+
+        const sgementDuration = segment.end - segment.start;
+        // 动画时长不能超过segment时长
+        duration = Math.min(duration || defaultDuration || 0, sgementDuration);
+
+        // 以当前meta.rect为基准，计算关键帧的绝对位置
+        const { x: currentX, y: currentY, w: currentW, h: currentH, angle: currentAngle } = {
+            x: sprite.rect.x,
+            y: sprite.rect.y,
+            w: sprite.rect.w,
+            h: sprite.rect.h,
+            angle: sprite.rect.angle,
+            ...meta.rect,
+        };
+        const currentOpacity = meta.opacity || 1;
+        const canvasWidth = width.value;
+        const canvasHeight = height.value;
+        const keyframe: WebCutAnimationKeyframe = {};
+        each(defaultKeyframe, (props: WebCutAnimationPreset['defaultKeyframe'][keyof WebCutAnimationPreset['defaultKeyframe']], key) => {
+            const { offsetX, offsetY, scale, rotate, opacity } = props || {};
+            const data = keyframe[key] = {
+                x: currentX,
+                y: currentY,
+                w: currentW,
+                h: currentH,
+                angle: currentAngle,
+                opacity: currentOpacity,
+            };
+            if (offsetX) {
+                if (Number.isFinite(offsetX)) {
+                    data.x = currentX! + offsetX;
+                }
+                // 正无穷，也就是画面移动到最右边隐藏起来
+                else if (offsetX > 0) {
+                    data.x = canvasWidth;
+                }
+                // 负无穷，也就是画面移动到最左边隐藏起来
+                else if (offsetX < 0) {
+                    data.x = -currentW!;
+                }
+            }
+            if (offsetY) {
+                if (Number.isFinite(offsetY)) {
+                    data.y = currentY! + offsetY;
+                }
+                // 正无穷，也就是画面移动到最下边隐藏起来
+                else if (offsetY > 0) {
+                    data.y = canvasHeight;
+                }
+                // 负无穷，也就是画面移动到最上边隐藏起来
+                else if (offsetY < 0) {
+                    data.y = -currentH!;
+                }
+            }
+            if (typeof scale === 'number' && scale >= 0) {
+                // @ts-ignore
+                data.w = currentW * scale;
+                // @ts-ignore
+                data.h = currentH * scale;
+                // 缩放时，需要将画面居中
+                const info = autoFitRect({ width: width.value, height: height.value }, { width: data.w!, height: data.h! });
+                data.x = info.x;
+                data.y = info.y;
+                // TODO 缩放时，是否要处理 offsetX, offsetY ？
+            }
+            if (typeof rotate === 'number' && rotate !== 0) {
+                // rotate为deg，我们需要转为rad
+                // @ts-ignore
+                data.angle = rotate * Math.PI / 180;
+            }
+            if (typeof opacity === 'number' && opacity >= 0 && opacity < 1) {
+                // @ts-ignore
+                data.opacity = opacity;
+            }
+        });
+
+        // 出场入场只能执行1次
+        if (type === WebCutAnimationType.Enter || type === WebCutAnimationType.Exit) {
+            iterCount = 1;
+        }
+        else if (type === WebCutAnimationType.Motion && !iterCount) {
+            iterCount = defaultIterCount || Math.ceil(sgementDuration / duration);
+        }
+
+        // 对于出场，要让动画在segment结束时结束，通过延迟执行来实现
+        if (type === WebCutAnimationType.Exit) {
+            delay = sgementDuration - duration;
+        }
+
+        // 重置原始信息
+        Object.assign(sprite.rect, meta.rect);
+        sprite.opacity = meta.opacity || 1;
+
+        // 设置动画信息
+        const info = {
+            duration,
+            delay,
+            iterCount,
+        };
+        sprite.setAnimation(keyframe, info);
+        meta.animation = {
+            type,
+            key,
+            duration,
+            delay,
+            iterCount,
+        };
+
+        // 将动画参数返回给外部使用
+        return info;
+    }
+
     function moveTo(time: number) {
         cursorTime.value = time;
         canvas.value?.previewFrame(time);
@@ -872,12 +1141,61 @@ export function useWebCutPlayer() {
     }
 
     async function download(filename = `webcut-${Date.now()}`) {
+        if (typeof window.showSaveFilePicker !== 'function') {
+            try {
+                const fileHandle = await window.showSaveFilePicker({
+                    suggestedName: `webcut-${Date.now()}.mp4`,
+                    types: [
+                        {
+                            description: 'MP4 视频',
+                            accept: {
+                                'video/mp4': ['.mp4']
+                            }
+                        }
+                    ]
+                });
+
+                const writable = await fileHandle.createWritable();
+                await exportToWritable(writable);
+                await writable.close();
+                return;
+            }
+            catch (error) {}
+        }
         const blob = await exportBlob();
         downloadBlob(blob, filename + '.mp4');
     }
 
     function resize() {
         player.value?.fitBoxSize?.();
+    }
+
+    function syncSourceMeta(source: WebCutSource, data: {
+        rect?: any,
+        opacity?: number,
+        filters?: Array<{ key: string; params?: Record<string, any> }>,
+    }) {
+        const { rect, opacity, filters } = data;
+        if (rect) {
+            Object.assign(source.sprite.rect, rect);
+            source.meta.rect = source.meta.rect || {};
+            Object.assign(source.meta.rect, rect);
+        }
+        if (opacity !== undefined) {
+            source.sprite.opacity = opacity;
+            source.meta.opacity = opacity;
+        }
+        if (filters !== undefined) {
+            source.meta.filters = filters;
+            // 重新赋值tickInterceptor以立即生效
+            syncTickInterceptor(source.clip, source.key);
+            // 调用previewFrame立即显示效果
+            canvas.value?.previewFrame(cursorTime.value);
+        }
+        // 属性修改之后，需要重新计算动画
+        if (source.meta.animation) {
+            applyAnimation(source.key, source.meta.animation);
+        }
     }
 
     return {
@@ -898,6 +1216,9 @@ export function useWebCutPlayer() {
         readSources,
         download,
         resize,
+        applyAnimation, // 导出 applyAnimation 函数
+        syncSourceMeta,
+        syncTickInterceptor,
     };
 }
 
@@ -953,9 +1274,10 @@ export function useWebCutThemeColors(provideColors?: () => Partial<WebCutColors>
         greyColorDark: '#444',
         greyDeepColor: '#eee',
         greyDeepColorDark: '#2e2e2e',
+
         railBgColor: '#f5f5f5',
         railBgColorDark: '#1f1f1f',
-        railHoverBgColor: 'rgba(126, 151, 144, 0.2)',
+        railHoverBgColor: 'rgba(125, 212, 187, 0.25)',
         railHoverBgColorDark: 'rgba(114, 251, 210, 0.2)',
         lineColor: '#eee',
         lineColorDark: '#000',
@@ -963,6 +1285,8 @@ export function useWebCutThemeColors(provideColors?: () => Partial<WebCutColors>
         thumbColorDark: '#444',
         managerTopBarColor: '#f0f0f0',
         managerTopBarColorDark: '#222',
+        closeIconColor: '#999',
+        closeIconColorDark: '#ccc',
     };
     const parentThemeColors = inject<ComputedRef<WebCutColors> | null>('WEBCUT_THEME_COLORS', null);
     const themeColors = computed(() => {
@@ -1033,5 +1357,21 @@ export function useWebCutDarkMode(darkMode?: ModelRef<boolean | null | undefined
     return {
         isDarkMode,
         provide: () => provide('WEBCUT_DARK_MODE', isDarkMode),
+    };
+}
+
+/**
+ * Hook to control and access the loading state
+ */
+export function useWebCutLoading() {
+    const { loading } = useWebCutContext();
+
+    const showLoading = () => loading.value = true;
+    const hideLoading = () => loading.value = false;
+
+    return {
+        loading,
+        showLoading,
+        hideLoading,
     };
 }

@@ -4,11 +4,10 @@ import { NPopover, NButton, NIcon } from 'naive-ui';
 import { DirectLink } from '@vicons/carbon';
 import { useWebCutContext } from '../../../hooks';
 import { useT } from '../../../hooks/i18n';
-import { exportBlobOffscreen, exportAsWavBlobOffscreen } from '../../../libs';
-import { downloadBlob } from '../../../libs/file';
+import { downloadOffscreen } from '../../../libs';
 import { AudioClip } from '@webav/av-cliper';
 
-const { rails, selected, sources, currentRail } = useWebCutContext();
+const { rails, selected, sources, currentRail, loading } = useWebCutContext();
 const t = useT();
 
 // 检查是否可以拼接素材
@@ -105,17 +104,25 @@ async function handleConcat() {
 
   const type = prevSource.type;
 
+  loading.value = true;
   try {
     // 根据素材类型选择导出函数
     if (type === 'video') {
-      const blob = await exportBlobOffscreen([prevSource.clip, nextSource.clip]);
-      downloadBlob(blob, `concatenated-video-${Date.now()}.mp4`);
-    } else if (type === 'audio') {
-      const blob = await exportAsWavBlobOffscreen([prevSource.clip as AudioClip, nextSource.clip as AudioClip]);
-      downloadBlob(blob, `concatenated-audio-${Date.now()}.wav`);
+      await downloadOffscreen([prevSource.clip, nextSource.clip], {
+        type: 'video/mp4',
+        filename: `concatenated-video-${Date.now()}.mp4`
+      });
+    }
+    else if (type === 'audio') {
+      await downloadOffscreen([prevSource.clip as AudioClip, nextSource.clip as AudioClip], {
+        type: 'audio/mp4',
+        filename: `concatenated-audio-${Date.now()}.m4a`
+      });
     }
   } catch (error) {
     console.error('拼接素材失败:', error);
+  } finally {
+    loading.value = false;
   }
 }
 </script>
@@ -129,7 +136,7 @@ async function handleConcat() {
         </template>
       </n-button>
     </template>
-    <small>{{ t('将连续且相邻的素材拼接下载') }}</small>
+    <small>{{ t('将连续且相邻的素材拼接后下载') }}</small>
   </n-popover>
 </template>
 
