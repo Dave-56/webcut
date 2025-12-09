@@ -101,6 +101,8 @@ export type WebCutRail = {
     id: string;
     type: WebCutMaterialType;
     segments: WebCutSegment[];
+    /** 轨道上的转场效果列表 */
+    transitions: WebCutTransition[];
     mute?: boolean;
     hidden?: boolean;
     locked?: boolean;
@@ -122,6 +124,31 @@ export interface WebCutMaterial {
   createdAt: number;
   updatedAt: number;
 };
+
+// 转场效果类型定义
+export type WebCutTransitionType = 'fade' | 'zoom' | 'slide' | 'rotate' | 'dissolve';
+
+// 转场效果配置
+export interface WebCutTransition {
+    /** 转场效果ID */
+    id: string;
+    /** 转场效果类型 */
+    type: WebCutTransitionType;
+    /** 转场效果名称（用于展示） */
+    name: string;
+    /** 转场效果持续时间（微秒） */
+    duration: number;
+    /** 转场效果参数 */
+    params?: Record<string, any>;
+    /** 起始segment ID */
+    fromSegmentId: string;
+    /** 结束segment ID */
+    toSegmentId: string;
+    /** 转场开始时间（在轨道上的绝对时间） */
+    startTime: number;
+    /** 转场结束时间（在轨道上的绝对时间） */
+    endTime: number;
+}
 
 // 动画类型定义
 export enum WebCutAnimationType {

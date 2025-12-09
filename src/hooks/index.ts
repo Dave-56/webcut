@@ -715,6 +715,7 @@ export function useWebCutPlayer() {
                         id: withRailId || createRandomString(16),
                         type,
                         segments: [],
+                        transitions: [],
                     };
                     if (type === 'video') {
                         rail.main = true;
@@ -728,6 +729,7 @@ export function useWebCutPlayer() {
                         id: withRailId || createRandomString(16),
                         type,
                         segments: [],
+                        transitions: [],
                     };
                     latestRails.push(rail);
                 }
@@ -1399,3 +1401,6 @@ export function useWebCutLoading() {
         hideLoading,
     };
 }
+
+export * from './transition';
+export * from './history';
