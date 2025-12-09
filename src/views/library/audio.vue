@@ -105,15 +105,15 @@ async function handleAdd(material: any) {
 </script>
 
 <template>
-  <div class="webcut-material-panel">
-    <aside class="webcut-material-panel-aside">
-      <div class="webcut-material-panel-aside-btn" :class="{ 'webcut-material-panel-aside-btn--active': actionType === 'this' }" @click="actionType = 'this'">{{ t('当前') }}</div>
-      <div class="webcut-material-panel-aside-btn" :class="{ 'webcut-material-panel-aside-btn--active': actionType === 'import' }" @click="actionType = 'import'">{{ t('导入') }}</div>
-      <div class="webcut-material-panel-aside-btn" :class="{ 'webcut-material-panel-aside-btn--active': actionType === 'all' }" @click="actionType = 'all'">{{ t('全部') }}</div>
+  <div class="webcut-library-panel">
+    <aside class="webcut-library-panel-aside">
+      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'this' }" @click="actionType = 'this'">{{ t('当前') }}</div>
+      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'import' }" @click="actionType = 'import'">{{ t('导入') }}</div>
+      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'all' }" @click="actionType = 'all'">{{ t('全部') }}</div>
     </aside>
 
     <!-- 右侧素材列表 -->
-    <main class="webcut-material-panel-main">
+    <main class="webcut-library-panel-main">
       <div class="webcut-meterial-panel-upload" v-if="actionType === 'import'">
         <n-upload multiple :show-file-list="false" accept=".mp3,.wav,.ogg,.flac,.m4a" @change="handleFileChange">
           <n-upload-dragger>
@@ -186,18 +186,18 @@ async function handleAdd(material: any) {
 </template>
 
 <style scoped lang="less">
-.webcut-material-panel {
+.webcut-library-panel {
   display: flex;
   height: 100%;
   margin: 0 4px;
 }
 
-.webcut-material-panel-aside {
+.webcut-library-panel-aside {
   width: 60px;
   min-width: 60px;
 }
 
-.webcut-material-panel-aside-btn {
+.webcut-library-panel-aside-btn {
   background: var(--webcut-grey-deep-color);
   margin: 2px;
   border-radius: 4px;
@@ -210,7 +210,7 @@ async function handleAdd(material: any) {
   }
 }
 
-.webcut-material-panel-main {
+.webcut-library-panel-main {
   flex: 1;
   margin-left: 8px;
 }

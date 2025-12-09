@@ -1,171 +1,114 @@
 <script setup lang="ts">
-import { ref, useT } from 'vue';
+import { ref } from 'vue';
+import { NButton, NIcon } from 'naive-ui';
+import { Add } from '@vicons/carbon';
+import { useT } from '../../hooks/i18n';
 import { transitionPresets } from '../../constants/transition';
-
-const isHovered = ref<string | null>(null);
+import { useWebCutContext, useWebCutTransition } from '../../hooks';
+import ScrollBox from '../../components/scroll-box/index.vue';
 
 const t = useT();
 
-// 转场效果点击事件
-const handleTransitionClick = (transitionKey: string) => {
-  // 在实际应用中，这里应该将转场效果应用到当前选中的片段之间
-  console.log('Selected transition:', transitionKey);
-  // 发出事件通知父组件
-  emit('select-transition', transitionKey);
-};
+// 左侧菜单状态，只保留"默认"
+const actionType = ref<'default'>('default');
 
-// 定义组件事件
-const emit = defineEmits<{
-  'select-transition': [transitionKey: string];
-}>();
+// 获取上下文和转场管理器
+const { selected, rails } = useWebCutContext();
+const { applyTransition } = useWebCutTransition();
+
+// 转场效果点击事件
+const handleTransitionClick = async (transitionKey: string) => {
+  // 检查是否选择了两个片段
+  if (selected.value.length !== 2) {
+    console.warn('请选择两个相邻的片段来应用转场效果');
+    return;
+  }
+
+  // 检查是否是同一轨道上的相邻片段
+  const [seg1, seg2] = selected.value;
+
+  // 如果不是同一轨道
+  if (seg1.railId !== seg2.railId) {
+    console.warn('请选择同一轨道上的两个相邻片段');
+    return;
+  }
+
+  const rail = rails.value.find(r => r.id === seg1.railId);
+  if (!rail) {
+    console.warn('轨道不存在');
+    return;
+  }
+
+  // 找到片段在轨道上的索引
+  const seg1Index = rail.segments.findIndex(s => s.id === seg1.segmentId);
+  const seg2Index = rail.segments.findIndex(s => s.id === seg2.segmentId);
+
+  // 如果找不到片段或不是相邻片段
+  if (seg1Index === -1 || seg2Index === -1 || Math.abs(seg1Index - seg2Index) !== 1) {
+    console.warn('请选择两个相邻的片段');
+    return;
+  }
+
+  // 确保正确的顺序 (seg1 在 seg2 之前)
+  const fromSegmentIndex = Math.min(seg1Index, seg2Index);
+
+  try {
+    // 应用转场效果
+    const transition = await applyTransition(seg1.railId, fromSegmentIndex, transitionKey);
+    if (transition) {
+      console.log('转场效果已应用');
+    }
+  } catch (error) {
+    console.error('Failed to apply transition:', error);
+  }
+};
 </script>
 
 <template>
-  <div class="webcut-library-transition">
-    <div class="webcut-library-transition-content">
-      <div class="webcut-library-transition-title">
-        {{ t('转场效果') }}
-      </div>
-      <div class="webcut-library-transition-list">
-        <div
-          v-for="transition in transitionPresets"
-          :key="transition.key"
-          class="webcut-library-transition-item"
-          @click="handleTransitionClick(transition.key)"
-          @mouseenter="isHovered = transition.key"
-          @mouseleave="isHovered = null"
-        >
-          <div class="webcut-library-transition-item-icon">
-            {{ transition.name.substring(0, 1) }}
-          </div>
-          <div class="webcut-library-transition-item-name">
-            {{ transition.name }}
-          </div>
-          <div class="webcut-library-transition-item-duration">
-            {{ (transition.defaultDuration / 1e6).toFixed(1) }}s
-          </div>
-          <div class="webcut-library-transition-item-description">
-            {{ transition.description }}
-          </div>
+  <div class="webcut-library-panel">
+    <!-- 左侧菜单栏 -->
+    <aside class="webcut-library-panel-aside">
+      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'default' }">{{ t('默认') }}</div>
+    </aside>
+
+    <!-- 右侧转场列表 -->
+    <main class="webcut-library-panel-main">
+      <ScrollBox class="webcut-material-container">
+        <div class="webcut-material-list">
           <div
-            v-if="isHovered === transition.key"
-            class="webcut-library-transition-item-overlay"
+            v-for="transition in transitionPresets"
+            :key="transition.key"
+            class="webcut-material-item"
           >
-            <div class="webcut-library-transition-item-overlay-text">
-              {{ t('点击应用') }}
+            <div class="webcut-material-preview">
+              <!-- 转场效果预览图标 -->
+              <div class="webcut-transition-preview-icon"></div>
+              <!-- 添加按钮 -->
+              <n-button 
+                class="webcut-add-button" 
+                size="tiny" 
+                type="primary" 
+                circle 
+                @click.stop="handleTransitionClick(transition.key)"
+              >
+                <template #icon>
+                  <n-icon :component="Add"></n-icon>
+                </template>
+              </n-button>
+            </div>
+            <div class="webcut-material-title">
+              {{ transition.name }}
             </div>
           </div>
+          <div v-if="transitionPresets.length === 0" class="webcut-empty-materials">
+            {{ t('暂无转场效果') }}
+          </div>
         </div>
-      </div>
-    </div>
+      </ScrollBox>
+    </main>
   </div>
 </template>
 
 <style scoped lang="less">
-.webcut-library-transition {
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  padding: 12px;
-
-  &-content {
-    width: 100%;
-  }
-
-  &-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 12px;
-    color: var(--webcut-text-color);
-  }
-
-  &-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 16px;
-  }
-
-  &-item {
-    background: var(--webcut-background-color);
-    border: 1px solid var(--webcut-grey-color);
-    border-radius: 12px;
-    padding: 20px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-    text-align: center;
-
-    &:hover {
-      border-color: var(--webcut-primary-color);
-      transform: translateY(-4px);
-      box-shadow: 0 8px 16px rgba(0, 180, 162, 0.15);
-    }
-
-    &-icon {
-      width: 50px;
-      height: 50px;
-      margin: 0 auto 12px;
-      background: linear-gradient(135deg, var(--webcut-primary-color), var(--webcut-primary-color-hover));
-      color: white;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      font-weight: 600;
-      transition: all 0.3s ease;
-    }
-
-    &:hover &-icon {
-      transform: scale(1.1) rotate(5deg);
-    }
-
-    &-name {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: var(--webcut-text-color);
-    }
-
-    &-duration {
-      font-size: 12px;
-      color: var(--webcut-primary-color);
-      margin-bottom: 8px;
-      font-weight: 500;
-    }
-
-    &-description {
-      font-size: 12px;
-      color: var(--webcut-text-color-dark);
-      line-height: 1.5;
-      min-height: 40px;
-    }
-
-    &-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 180, 162, 0.9);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-      border-radius: 12px;
-
-      &-text {
-        font-size: 16px;
-        font-weight: 600;
-      }
-    }
-
-    &:hover &-overlay {
-      opacity: 1;
-    }
-  }
-}
+@import "../../styles/library.less";
 </style>

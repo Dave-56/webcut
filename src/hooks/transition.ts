@@ -1,11 +1,10 @@
-import { useWebCutContext, useWebCutPlayer, useWebCutHistory } from './index';
+import { useWebCutContext, useWebCutHistory } from './index';
 import { createRandomString } from 'ts-fns';
 import { transitionPresets } from '../constants/transition';
 import { WebCutTransition } from '../types';
 
 export function useWebCutTransition() {
     const context = useWebCutContext();
-    const player = useWebCutPlayer();
     const history = useWebCutHistory();
     const { rails, sources } = context;
 
@@ -159,7 +158,6 @@ export function useWebCutTransition() {
         spr2: any,
         transition: WebCutTransition
     ): void {
-        const duration = transition.duration;
         const { fromScale = 1, toScale = 1.2 } = transition.params || {};
 
         // 第一个视频缩小退出
@@ -189,7 +187,6 @@ export function useWebCutTransition() {
         spr2: any,
         transition: WebCutTransition
     ): void {
-        const duration = transition.duration;
         const { direction = 'right' } = transition.params || {};
 
         // 第一个视频滑出
@@ -233,7 +230,6 @@ export function useWebCutTransition() {
         spr2: any,
         transition: WebCutTransition
     ): void {
-        const duration = transition.duration;
         const { angle = 180 } = transition.params || {};
 
         // 第一个视频旋转退出
@@ -264,7 +260,6 @@ export function useWebCutTransition() {
         transition: WebCutTransition
     ): void {
         // 溶解转场的实现需要帧处理，这里暂时用透明度动画模拟
-        const duration = transition.duration;
         applyFadeTransition(spr1, spr2, transition);
     }
 

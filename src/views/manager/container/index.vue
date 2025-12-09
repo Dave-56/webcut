@@ -457,6 +457,20 @@ manager.value = exposes;
                         >
                             <slot name="mainSegment" :segment="item" :rail="rail" :segmentIndex="segmentIndex" :railIndex="railIndex" :segments="rail.segments"></slot>
                         </AdjustableBox>
+
+                        <!-- 转场效果片段 -->
+                        <div
+                            v-for="(transition,transitionIndex) in rail.transitions"
+                            :key="transition.id"
+                            class="webcute__manager__main__rail-segment webcute__manager__main__rail-segment--transition"
+                            :style="{
+                                '--segment-left': timeToPx(transition.startTime) + 'px',
+                                '--segment-width': timeToPx(transition.endTime - transition.startTime) + 'px'
+                            }"
+                        >
+                            <slot name="mainTransition" :transition="transition" :rail="rail" :railIndex="railIndex" :transitionIndex="transitionIndex"></slot>
+                        </div>
+
                         <slot name="mainRailEnd" :rail="rail" :railIndex="railIndex"></slot>
                     </div>
                     <div class="webcute__manager__main__rail webcute__manager__main__rail--empty" v-if="!props.disableEmptyRail && rails.length === 0">
