@@ -1,5 +1,5 @@
 import { inject, toRefs, markRaw, reactive, provide, watch, ref, watchEffect, computed, type ComputedRef, ModelRef, WritableComputedRef } from 'vue';
-import { WebCutAnimationData, WebCutAnimationKeyframe, WebCutAnimationType, WebCutColors, WebCutContext, WebCutAnimationPreset, WebCutSource, WebCutSegment, WebCutFilterData } from '../types';
+import { WebCutAnimationData, WebCutAnimationKeyframe, WebCutAnimationType, WebCutColors, WebCutContext, WebCutAnimationPreset, WebCutSource, WebCutFilterData } from '../types';
 import { AVCanvas } from '@webav/av-canvas';
 import {
   AudioClip,
@@ -17,6 +17,7 @@ import { readFile, updateProjectState, writeFile } from '../db';
 import { PerformanceMark, mark } from '../libs/performance';
 import { aspectRatioMap } from '../constants';
 import { animationPresets } from '../constants/animation';
+import { globalTransitionManager } from '../transitions';
 
 let context: WebCutContext | null | undefined = null;
 export function useWebCutContext(providedContext?: () => Partial<WebCutContext> | undefined | null) {
@@ -340,6 +341,10 @@ export function useWebCutPlayer() {
         if (cursorTime.value) {
             canvas.value.previewFrame(cursorTime.value);
         }
+
+        // 绑定全局转场管理器
+        globalTransitionManager.bindCanvas(canvas.value, width.value, height.value);
+        globalTransitionManager.updateData(rails.value, sources.value);
     }
 
     function play() {
@@ -407,13 +412,15 @@ export function useWebCutPlayer() {
     }
 
     // 提取tickInterceptor逻辑为独立函数，供外部使用
+    // 优化后的版本：转场由独立的 TransitionLayer 处理，此处只保留滤镜和静音处理
+    // 转场不再在 clip 的 tickInterceptor 中处理，而是作为独立的 Sprite 层渲染
     function syncSourceTickInterceptor(sourceKey: string) {
         const clip: MP4Clip | ImgClip | AudioClip = sources.value.get(sourceKey)?.clip!;
         if (!clip) {
             return;
         }
 
-        const tickInterceptor = async <T extends Record<string, any>>(time: number, tickRet: T): Promise<T> => {
+        const tickInterceptor = async <T extends Record<string, any>>(_time: number, tickRet: T): Promise<T> => {
             let result = tickRet;
 
             if (result.video instanceof VideoFrame) {
@@ -422,8 +429,9 @@ export function useWebCutPlayer() {
                     // 通过source.key找到对应的source，获取最新的meta
                     const sourceInfo = sources.value.get(sourceKey);
 
-                    // 处理视频滤镜
+                    // 处理视频滤镜（转场已移至独立的 TransitionLayer）
                     const filters = sourceInfo?.meta.filters || [];
+                    let processedFrame: VideoFrame;
                     if (filters.length > 0) {
                         const { filterManager } = await import('../filters');
                         // 处理滤镜配置，分离滤镜名称和参数
@@ -438,113 +446,12 @@ export function useWebCutPlayer() {
                                 filterConfigs.push(filterData.params || {});
                             }
                         }
-                        (result as any).video = await filterManager.applyFilters(originalFrame, filterKeys, filterConfigs);
+                        processedFrame = await filterManager.applyFilters(originalFrame, filterKeys, filterConfigs);
                     } else {
-                        (result as any).video = originalFrame.clone();
+                        processedFrame = originalFrame.clone();
                     }
 
-                    // 处理视频转场
-                    // 在此处实现转场效果，处理方式和滤镜类似
-                    const sprite = sourceInfo?.sprite;
-                    const spriteStart = sprite?.time.offset || 0;
-                    const tickTime = spriteStart + time; // 当前tick在整个视频时间轴上的时间
-                    const railId = sourceInfo?.railId;
-                    const rail = rails.value.find(rail => rail.id === railId);
-                    const segmentId = sourceInfo?.segmentId;
-                    const segmentIndex = (rail?.segments || []).findIndex(segment => segment.id === segmentId);
-                    const transitionIndex = (rail?.transitions || []).findIndex(item => item.start <= tickTime && item.end >= tickTime);
-                    if (rail && transitionIndex > -1 && segmentIndex > -1) {
-                        const transition = rail.transitions[transitionIndex];
-                        const segment = rail.segments[segmentIndex];
-                        const prevSegmentIndex = segmentIndex - 1;
-                        const nextSegmentIndex = segmentIndex + 1;
-                        const prevSegment = rail.segments[prevSegmentIndex];
-                        const nextSegment = rail.segments[nextSegmentIndex];
-
-                        const transitionBetween = {} as {
-                            from: VideoFrame;
-                            to: VideoFrame;
-                        };
-                        // 从segment中获取frame
-                        const getVideoFrameFromSegment = async (segment: WebCutSegment, position: 'current' | 'start' | 'end') => {
-                            const { sourceKey } = segment;
-                            const source = sources.value.get(sourceKey);
-                            if (!source) {
-                                return null;
-                            }
-                            const clip = source.clip as MP4Clip;
-
-                            // 使用缓存
-                            if (position !== 'current') {
-                                // @ts-ignore
-                                const cache: ImageBitmap = clip.__frameCache[position];
-                                if (cache) {
-                                    const frame = new VideoFrame(cache, { timestamp: time });
-                                    return frame;
-                                }
-                            }
-
-                            const { duration } = clip.meta;
-                            const targetTime = position === 'current' ? time
-                                : position === 'start' ? 0
-                                : position === 'end' ? duration - 1e5
-                                : time;
-                            const clonedClip = await clip.clone();
-                            await clonedClip.ready;
-                            clonedClip.tickInterceptor = async <T>(_: number, tickRet: T): Promise<T> => {
-                                return tickRet;
-                            };
-                            const ret = await clonedClip.tick(targetTime);
-                            clonedClip.destroy();
-                            const frame = ret.video;
-                            return frame;
-                        };
-                        // 先找出当前转场是应用与哪两个segment之间
-                        let siblingSegment;
-                        if (
-                            prevSegment
-                            && transition.start > prevSegment.start
-                            && transition.start < prevSegment.end
-                            && transition.end > segment.start
-                            && transition.end < segment.end
-                        ) {
-                            const fromFrame = await getVideoFrameFromSegment(prevSegment, 'end');
-                            if (fromFrame) {
-                                transitionBetween.from = fromFrame;
-                                transitionBetween.to = originalFrame;
-                                siblingSegment = prevSegment;
-                            }
-                        }
-                        else if (
-                            nextSegment
-                            && transition.start > segment.start
-                            && transition.start < segment.end
-                            && transition.end > nextSegment.start
-                            && transition.end < nextSegment.end
-                        ) {
-                            const toFrame = await getVideoFrameFromSegment(nextSegment, 'start');
-                            if (toFrame) {
-                                transitionBetween.from = originalFrame;
-                                transitionBetween.to = toFrame;
-                                siblingSegment = nextSegment;
-                            }
-                        }
-
-                        if (siblingSegment) {
-                            // TODO 实现转场处理
-                            const { transitionManager } = await import('../transitions');
-                            const transitionTime = tickTime - transition.start;
-                            const progress = transitionTime / (transition.end - transition.start);
-                            const frame = await transitionManager.applyTransition(
-                                transitionBetween.from,
-                                transitionBetween.to,
-                                progress,
-                                transition.name,
-                                transition.config,
-                            );
-                            (result as any).video = frame;
-                        }
-                    }
+                    (result as any).video = processedFrame;
                 } finally {
                     originalFrame.close();
                 }
@@ -574,50 +481,18 @@ export function useWebCutPlayer() {
         };
         clip.tickInterceptor = tickInterceptor;
 
-        // 将首帧和尾帧缓存起来
+        // 使用全局帧缓存系统预缓存关键帧
         if (clip instanceof MP4Clip || clip instanceof ImgClip) {
-            async function cacheClipFrame(clip: MP4Clip | ImgClip, position: 'start' | 'end') {
-                // @ts-ignore
-                if (clip.__frameCache && clip.__frameCache[position]) {
-                    return;
-                }
+            (async () => {
                 try {
-                    const { duration } = clip.meta;
-                    const clonedClip = await clip.clone();
-                    await clonedClip.ready;
-                    clonedClip.tickInterceptor = async <T>(_: number, tickRet: T): Promise<T> => {
-                        return tickRet;
-                    };
-
-                    const setCache = async (time: number) => {
-                        const ret = await clonedClip.tick(time);
-                        clonedClip.destroy();
-                        const frame = ret.video;
-                        if (frame) {
-                            const bitmap = await createImageBitmap(frame);
-                            // @ts-ignore
-                            clip.__frameCache = clip.__frameCache || {};
-                            // @ts-ignore
-                            clip.__frameCache[position] = bitmap;
-                        }
-                        return frame;
-                    };
-
-                    let end = duration - 10;
-                    const targetTime = position === 'start' ? 0 : end;
-                    const frame = await setCache(targetTime);
-                    // 如果首帧缓存失败，再次尝试尾帧缓存
-                    if (!frame && position === 'end') {
-                        end -= 1e5;
-                        await setCache(end);
-                    }
+                    const { frameCache } = await import('../transitions');
+                    await frameCache.preCacheKeyFrames(sourceKey, clip as any);
+                } catch (e) {
+                    // 缓存失败不影响正常播放
+                    console.warn('Failed to pre-cache key frames:', e);
                 }
-                catch (e) {}
-            }
-            cacheClipFrame(clip, 'start');
-            cacheClipFrame(clip, 'end');
+            })();
         }
-
 
         // 通过前后移动来更新预览帧
         const currentTime = cursorTime.value;
@@ -1008,6 +883,8 @@ export function useWebCutPlayer() {
 
     function destroy() {
         clear();
+        // 解绑全局转场管理器
+        globalTransitionManager.unbindCanvas();
         canvas.value?.destroy();
         canvas.value = null;
     }
@@ -1388,6 +1265,54 @@ export function useWebCutPlayer() {
         }
     }
 
+    // 监听 rails 变化，自动同步转场层
+    watch(
+        () => rails.value.map(r => JSON.stringify(r.transitions || [])).join(','),
+        () => {
+            if (canvas.value) {
+                globalTransitionManager.updateData(rails.value, sources.value);
+            }
+        },
+        { deep: true }
+    );
+
+    // 监听 sources 变化，同步转场层
+    watch(
+        () => sources.value.size,
+        () => {
+            if (canvas.value) {
+                globalTransitionManager.updateData(rails.value, sources.value);
+            }
+        }
+    );
+
+    // 监听画布尺寸变化
+    watch([width, height], ([w, h]) => {
+        globalTransitionManager.updateSize(w, h);
+    });
+
+    /**
+     * 添加转场效果
+     * 在 rail.transitions 中添加转场数据后，调用此函数创建转场 Sprite
+     */
+    async function addTransition(railId: string, transition: import('../types').WebCutTransitionData) {
+        await globalTransitionManager.addTransition(railId, transition);
+    }
+
+    /**
+     * 移除转场效果
+     */
+    function removeTransition(railId: string, transitionId: string) {
+        globalTransitionManager.removeTransition(railId, transitionId);
+    }
+
+    /**
+     * 更新转场效果
+     */
+    async function updateTransition(railId: string, transition: import('../types').WebCutTransitionData) {
+        await globalTransitionManager.updateTransition(railId, transition);
+    }
+
     return {
         init,
         play,
@@ -1406,9 +1331,13 @@ export function useWebCutPlayer() {
         readSources,
         download,
         resize,
-        applyAnimation, // 导出 applyAnimation 函数
+        applyAnimation,
         syncSourceMeta,
         syncSourceTickInterceptor,
+        // 转场相关
+        addTransition,
+        removeTransition,
+        updateTransition,
     };
 }
 

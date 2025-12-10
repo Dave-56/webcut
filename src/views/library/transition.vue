@@ -14,8 +14,8 @@ const transitionDefaults = transitionManager.getTransitionDefaults();
 const t = useT();
 const transitionPresets = Object.values(transitionDefaults);
 const { selected, current, rails } = useWebCutContext();
+const { addTransition } = useWebCutPlayer();
 const toast = useWebCutToast();
-const { syncSourceTickInterceptor } = useWebCutPlayer();
 
 // 左侧菜单状态，只保留"默认"
 const actionType = ref<'default'>('default');
@@ -75,10 +75,12 @@ const handleTransitionClick = async (transitionName: string) => {
         end: currentSegment.end + defaultDuration / 2,
         config: clone(defaultConfig || {}),
     };
+
+    // 添加到 rail.transitions 数据中
     rail.transitions.push(transition);
 
-    syncSourceTickInterceptor(currentSegment.sourceKey);
-    syncSourceTickInterceptor(nextSegment.sourceKey);
+    // 创建转场 Sprite 渲染到画布
+    await addTransition(railId, transition);
 };
 
 </script>

@@ -13,6 +13,12 @@ import {
   BlurTransition,
   type SlideDirection,
 } from './effect-transitions';
+// 导入新的优化模块
+import { FrameCache, frameCache } from './frame-cache';
+import { WebGLTransitionRenderer, webglRenderer, BUILTIN_SHADERS, type TransitionShaderConfig } from './webgl-renderer';
+import { GlobalTransitionManager, globalTransitionManager, type TransitionInfo, type TransitionTimeRange, type GlobalTransitionManagerConfig } from './global-transition-manager';
+import { TransitionClip, type TransitionClipConfig } from './transition-clip';
+import { TransitionLayer, transitionLayer, type TransitionLayerConfig, type TransitionSpriteInfo } from './transition-layer';
 
 // 重新导出基础类和类型
 export {
@@ -32,6 +38,39 @@ export {
   WipeTransition,
   CircleTransition,
   BlurTransition,
+};
+
+// 导出帧缓存系统
+export {
+  FrameCache,
+  frameCache,
+};
+
+// 导出 WebGL 转场渲染器
+export {
+  WebGLTransitionRenderer,
+  webglRenderer,
+  BUILTIN_SHADERS,
+  type TransitionShaderConfig,
+};
+
+// 导出全局转场管理器
+export {
+  GlobalTransitionManager,
+  globalTransitionManager,
+  type TransitionInfo,
+  type TransitionTimeRange,
+  type GlobalTransitionManagerConfig,
+};
+
+// 导出转场 Clip 和转场层
+export {
+  TransitionClip,
+  type TransitionClipConfig,
+  TransitionLayer,
+  transitionLayer,
+  type TransitionLayerConfig,
+  type TransitionSpriteInfo,
 };
 
 // 创建全局转场管理器实例

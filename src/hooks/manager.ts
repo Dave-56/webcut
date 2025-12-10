@@ -1,7 +1,7 @@
 import { computed, watchEffect, watch } from 'vue';
 import { useWebCutContext, useWebCutPlayer } from './index';
 import { getGridFrame, getGridPixel } from '../libs/timeline';
-import { WebCutSegment, WebCutRail } from '../types';
+import { WebCutSegment, WebCutRail, WebCutTransitionData } from '../types';
 
 export function useWebCutManager() {
     const {
@@ -187,6 +187,17 @@ export function useWebCutManager() {
         unselectSegment(segment.id, rail.id);
     }
 
+    function deleteTransition({ transition, rail }: { transition: WebCutTransitionData; rail: WebCutRail }) {
+        // 从轨道的转场数组中删除指定转场
+        const transitionIndex = rail.transitions.findIndex(t => t.id === transition.id);
+        if (transitionIndex > -1) {
+            rail.transitions.splice(transitionIndex, 1);
+        }
+
+        // 强制取消选中
+        unselectSegment(transition.id, rail.id);
+    }
+
     async function splitSegment({ segment, rail, keep }: { segment: WebCutSegment; rail: WebCutRail; keep?: 'left' | 'right' | 'both' }) {
         loading.value = true;
         try {
@@ -339,6 +350,7 @@ export function useWebCutManager() {
         toggleRailHidden,
         toggleRailMute,
         deleteSegment,
+        deleteTransition,
         splitSegment,
     };
 }

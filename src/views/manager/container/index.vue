@@ -640,8 +640,9 @@ manager.value = exposes;
     margin-left: 4px;
 }
 .webcute__manager__main__rail-transition {
-    background-color: var(--primary-color);
+    background-color: var(--webcut-theme-opacity-color);
     z-index: 999;
-    opacity: .5;
+    padding: 0;
+    border: 0;
 }
 </style>
