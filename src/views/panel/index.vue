@@ -21,26 +21,26 @@ watch(currentSegment, () => {
   <div class="webcut-panel">
     <div class="webcut-panel-header" v-if="currentRail">
       <div class="webcut-panel-tabs">
-        <div class="webcut-panel-tab" v-if="['text', 'image', 'video'].includes(currentRail?.type!)" :class="{'webcut-panel-tab--active': tab === 'basic'}" @click="tab = 'basic'">
+        <div class="webcut-panel-tab" v-if="['text', 'image', 'video'].includes(currentRail?.type!) && currentSegment" :class="{'webcut-panel-tab--active': tab === 'basic'}" @click="tab = 'basic'">
           {{ t('基础') }}
         </div>
-        <div class="webcut-panel-tab" v-if="currentRail?.type === 'text'" :class="{'webcut-panel-tab--active': tab === 'text'}" @click="tab = 'text'">
+        <div class="webcut-panel-tab" v-if="currentRail?.type === 'text' && currentSegment" :class="{'webcut-panel-tab--active': tab === 'text'}" @click="tab = 'text'">
           {{ t('文本') }}
         </div>
-        <div class="webcut-panel-tab" v-if="['text', 'image', 'video'].includes(currentRail?.type!)" :class="{'webcut-panel-tab--active': tab === 'animation'}" @click="tab = 'animation'">
+        <div class="webcut-panel-tab" v-if="['text', 'image', 'video'].includes(currentRail?.type!) && currentSegment" :class="{'webcut-panel-tab--active': tab === 'animation'}" @click="tab = 'animation'">
           {{ t('动画') }}
         </div>
-        <div class="webcut-panel-tab" v-if="['text', 'image', 'video'].includes(currentRail?.type!)" :class="{'webcut-panel-tab--active': tab === 'filter'}" @click="tab = 'filter'">
+        <div class="webcut-panel-tab" v-if="['text', 'image', 'video'].includes(currentRail?.type!) && currentSegment" :class="{'webcut-panel-tab--active': tab === 'filter'}" @click="tab = 'filter'">
           {{ t('滤镜') }}
         </div>
       </div>
     </div>
     <div class="webcut-panel-content" v-if="currentRail">
       <ScrollBox>
-        <BasicSetting v-if="tab === 'basic' && ['text', 'image', 'video'].includes(currentRail?.type!)" />
-        <TextSetting v-if="tab === 'text' && ['text'].includes(currentRail?.type!)" />
-        <FilterSetting v-if="tab === 'filter' && ['text', 'image', 'video'].includes(currentRail?.type!)" />
-        <AnimationSetting v-if="tab === 'animation' && ['text', 'image', 'video'].includes(currentRail?.type!)" />
+        <BasicSetting v-if="tab === 'basic' && ['text', 'image', 'video'].includes(currentRail?.type!) && currentSegment" />
+        <TextSetting v-if="tab === 'text' && ['text'].includes(currentRail?.type!) && currentSegment" />
+        <FilterSetting v-if="tab === 'filter' && ['text', 'image', 'video'].includes(currentRail?.type!) && currentSegment" />
+        <AnimationSetting v-if="tab === 'animation' && ['text', 'image', 'video'].includes(currentRail?.type!) && currentSegment" />
       </ScrollBox>
     </div>
   </div>

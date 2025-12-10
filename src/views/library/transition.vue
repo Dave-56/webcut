@@ -3,18 +3,19 @@ import { ref } from 'vue';
 import { NButton, NIcon } from 'naive-ui';
 import { Add } from '@vicons/carbon';
 import { useT } from '../../hooks/i18n';
-import { useWebCutContext, useWebCutPlayer } from '../../hooks';
+import { useWebCutContext } from '../../hooks';
 import ScrollBox from '../../components/scroll-box/index.vue';
 import { useWebCutToast } from '../../hooks/toast';
 import { transitionManager } from '../../transitions';
 import { WebCutTransitionData } from '../../types';
 import { clone, createRandomString } from 'ts-fns';
+import { useWebCutTransition } from '../../hooks/transition';
 
 const transitionDefaults = transitionManager.getTransitionDefaults();
 const t = useT();
 const transitionPresets = Object.values(transitionDefaults);
-const { selected, current, rails } = useWebCutContext();
-const { addTransition } = useWebCutPlayer();
+const { current, rails } = useWebCutContext();
+const { applyTransition } = useWebCutTransition();
 const toast = useWebCutToast();
 
 // 左侧菜单状态，只保留"默认"
@@ -27,13 +28,7 @@ const handleTransitionClick = async (transitionName: string) => {
         return;
     }
 
-    const currentInfo = selected.value.find(r => r.segmentId === current.value);
-    if (!currentInfo) {
-        toast.error(t('当前片段不存在'));
-        return;
-    }
-
-    const { railId, segmentId } = currentInfo;
+    const { segmentId, railId } = current.value;
     const rail = rails.value.find(r => r.id === railId);
     if (!rail) {
         toast.error(t('轨道不存在'));
@@ -59,12 +54,6 @@ const handleTransitionClick = async (transitionName: string) => {
         return;
     }
 
-    // 检查时间是否连续（前一个片段的结束时间等于后一个片段的开始时间）
-    if (Math.abs(currentSegment.end - nextSegment.start) > 100) {
-        toast.error(t('请选择时间上连续的两个片段'));
-        return;
-    }
-
     // 应用转场效果
     const defaults = transitionDefaults[transitionName];
     const { defaultDuration = 2e6, defaultConfig } = defaults;
@@ -76,11 +65,18 @@ const handleTransitionClick = async (transitionName: string) => {
         config: clone(defaultConfig || {}),
     };
 
-    // 添加到 rail.transitions 数据中
-    rail.transitions.push(transition);
+    // 检查是否存在时间重叠的转场
+    const isOverlapping = rail.transitions.some(existingTransition => {
+        // 检查新转场的时间范围是否与现有转场重叠
+        return !(transition.end <= existingTransition.start || transition.start >= existingTransition.end);
+    });
+    if (isOverlapping) {
+        toast.error(t('已经存在视频转场，请先删除'));
+        return;
+    }
 
     // 创建转场 Sprite 渲染到画布
-    await addTransition(railId, transition);
+    await applyTransition(rail, transition);
 };
 
 </script>

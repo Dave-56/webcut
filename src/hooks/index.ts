@@ -17,7 +17,6 @@ import { readFile, updateProjectState, writeFile } from '../db';
 import { PerformanceMark, mark } from '../libs/performance';
 import { aspectRatioMap } from '../constants';
 import { animationPresets } from '../constants/animation';
-import { globalTransitionManager } from '../transitions';
 
 let context: WebCutContext | null | undefined = null;
 export function useWebCutContext(providedContext?: () => Partial<WebCutContext> | undefined | null) {
@@ -110,15 +109,15 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         const index = selected.value.findIndex(i => i.segmentId === segmentId && i.railId === railId);
         if (index === -1) {
             selected.value.push({ segmentId, railId });
-            current.value = segmentId;
+            current.value = { segmentId, railId };
             return;
         }
-        if (current.value && current.value !== segmentId) {
-            current.value = segmentId;
+        if (current.value && (current.value.segmentId !== segmentId || current.value.railId !== railId)) {
+            current.value = { segmentId, railId };
             return;
         }
         selected.value.splice(index, 1);
-        if (current.value === segmentId) {
+        if (current.value && current.value.segmentId === segmentId && current.value.railId === railId) {
             current.value = null;
         }
     }
@@ -127,7 +126,7 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         if (!selected.value.some(i => i.segmentId === segmentId && i.railId === railId)) {
             selected.value.push({ segmentId, railId });
         }
-        current.value = segmentId;
+        current.value = { segmentId, railId };
     }
 
     function unselectSegment(segmentId: string, railId: string) {
@@ -136,7 +135,7 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
             return;
         }
         selected.value.splice(index, 1);
-        if (current.value === segmentId) {
+        if (current.value && current.value.segmentId === segmentId && current.value.railId === railId) {
             current.value = null;
         }
     }
@@ -145,12 +144,8 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         if (!current.value) {
             return null;
         }
-        const currentItem = selected.value.find(i => i.segmentId === current.value);
-        if (!currentItem) {
-            return null;
-        }
-        const railId = currentItem.railId;
-        const rail = rails.value.find(rail => rail.id === railId);
+        const currentValue = current.value;
+        const rail = rails.value.find(rail => rail.id === currentValue.railId);
         if (!rail) {
             return null;
         }
@@ -158,19 +153,35 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
     });
 
     const currentSegment = computed(() => {
-        if (!current.value) {
+        if (!current.value || !current.value.segmentId) {
             return null;
         }
-        const currentItem = selected.value.find(i => i.segmentId === current.value);
-        if (!currentItem) {
+        const currentValue = current.value;
+        const rail = rails.value.find(rail => rail.id === currentValue.railId);
+        if (!rail) {
             return null;
         }
-        const segmentId = currentItem.segmentId;
-        const segment = currentRail.value?.segments.find(spr => spr.id === segmentId);
+        const segment = rail.segments.find(spr => spr.id === currentValue.segmentId);
         if (!segment) {
             return null;
         }
         return segment;
+    });
+
+    const currentTransition = computed(() => {
+        if (!current.value || !current.value.transitionId) {
+            return null;
+        }
+        const currentValue = current.value;
+        const rail = rails.value.find(rail => rail.id === currentValue.railId);
+        if (!rail) {
+            return null;
+        }
+        const transition = rail.transitions.find(t => t.id === currentValue.transitionId);
+        if (!transition) {
+            return null;
+        }
+        return transition;
     });
 
     const currentSource = computed(() => {
@@ -225,6 +236,7 @@ export function useWebCutContext(providedContext?: () => Partial<WebCutContext> 
         unselectSegment,
         currentRail,
         currentSegment,
+        currentTransition,
         currentSource,
         updateByAspectRatio,
         calcByAspectRatio,
@@ -271,6 +283,7 @@ export function useWebCutPlayer() {
             }
         }
     });
+
 
     function init() {
         if (!viewport.value) {
@@ -320,7 +333,7 @@ export function useWebCutPlayer() {
 
             if (!spr) {
                 activeSpriteUnsubscribe = null;
-                if (currentSource.value) {
+                if (currentSource.value?.segmentId) {
                     const { railId, segmentId } = currentSource.value;
                     unselectSegment(segmentId, railId);
                 }
@@ -332,7 +345,7 @@ export function useWebCutPlayer() {
             });
 
             const sourceItem = [...sources.value.values()].find(item => item.sprite === spr);
-            if (sourceItem) {
+            if (sourceItem?.segmentId) {
                 const { railId, segmentId } = sourceItem;
                 selectSegment(segmentId, railId);
             }
@@ -341,10 +354,6 @@ export function useWebCutPlayer() {
         if (cursorTime.value) {
             canvas.value.previewFrame(cursorTime.value);
         }
-
-        // 绑定全局转场管理器
-        globalTransitionManager.bindCanvas(canvas.value, width.value, height.value);
-        globalTransitionManager.updateData(rails.value, sources.value);
     }
 
     function play() {
@@ -480,19 +489,6 @@ export function useWebCutPlayer() {
             return result;
         };
         clip.tickInterceptor = tickInterceptor;
-
-        // 使用全局帧缓存系统预缓存关键帧
-        if (clip instanceof MP4Clip || clip instanceof ImgClip) {
-            (async () => {
-                try {
-                    const { frameCache } = await import('../transitions');
-                    await frameCache.preCacheKeyFrames(sourceKey, clip as any);
-                } catch (e) {
-                    // 缓存失败不影响正常播放
-                    console.warn('Failed to pre-cache key frames:', e);
-                }
-            })();
-        }
 
         // 通过前后移动来更新预览帧
         const currentTime = cursorTime.value;
@@ -883,8 +879,6 @@ export function useWebCutPlayer() {
 
     function destroy() {
         clear();
-        // 解绑全局转场管理器
-        globalTransitionManager.unbindCanvas();
         canvas.value?.destroy();
         canvas.value = null;
     }
@@ -1265,53 +1259,7 @@ export function useWebCutPlayer() {
         }
     }
 
-    // 监听 rails 变化，自动同步转场层
-    watch(
-        () => rails.value.map(r => JSON.stringify(r.transitions || [])).join(','),
-        () => {
-            if (canvas.value) {
-                globalTransitionManager.updateData(rails.value, sources.value);
-            }
-        },
-        { deep: true }
-    );
 
-    // 监听 sources 变化，同步转场层
-    watch(
-        () => sources.value.size,
-        () => {
-            if (canvas.value) {
-                globalTransitionManager.updateData(rails.value, sources.value);
-            }
-        }
-    );
-
-    // 监听画布尺寸变化
-    watch([width, height], ([w, h]) => {
-        globalTransitionManager.updateSize(w, h);
-    });
-
-    /**
-     * 添加转场效果
-     * 在 rail.transitions 中添加转场数据后，调用此函数创建转场 Sprite
-     */
-    async function addTransition(railId: string, transition: import('../types').WebCutTransitionData) {
-        await globalTransitionManager.addTransition(railId, transition);
-    }
-
-    /**
-     * 移除转场效果
-     */
-    function removeTransition(railId: string, transitionId: string) {
-        globalTransitionManager.removeTransition(railId, transitionId);
-    }
-
-    /**
-     * 更新转场效果
-     */
-    async function updateTransition(railId: string, transition: import('../types').WebCutTransitionData) {
-        await globalTransitionManager.updateTransition(railId, transition);
-    }
 
     return {
         init,
@@ -1334,10 +1282,6 @@ export function useWebCutPlayer() {
         applyAnimation,
         syncSourceMeta,
         syncSourceTickInterceptor,
-        // 转场相关
-        addTransition,
-        removeTransition,
-        updateTransition,
     };
 }
 

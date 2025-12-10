@@ -15,6 +15,7 @@ import { NIcon } from 'naive-ui';
 import { useT } from '../../../hooks/i18n';
 import { useWebCutContext } from '../../../hooks';
 import { useWebCutHistory } from '../../../hooks/history';
+import { useWebCutTransition } from '../../../hooks/transition';
 
 export type WebCutManagerProps = {
     topBarColor?: string;
@@ -45,6 +46,7 @@ const slots = useSlots();
 const { scroll1, scroll2, totalPx, timeToPx, pxToTime, pxOf1Frame, resetSegmentTime } = useWebCutManager();
 const t = useT();
 const { push: pushHistory } = useWebCutHistory();
+const { syncTransitions } = useWebCutTransition();
 
 const container = ref();
 
@@ -152,6 +154,7 @@ function handleMoveRelease(segment: WebCutSegment, rail: WebCutRail) {
     segment.end = pxToTime(end);
     moveState.value = {};
     resetSegmentTime(segment);
+    syncTransitions(rail);
     pushHistory();
     emit('resize', { segment, rail });
 }
@@ -362,6 +365,8 @@ function handleDragEnd(data: AdjustEventData, segment: WebCutSegment, rail: WebC
     highlightedRailId.value = null;
 
     resetSegmentTime(segment);
+    syncTransitions(rail);
+    syncTransitions(targetRail);
     pushHistory();
     emit('resize', { segment, rail: targetRail });
 }
@@ -381,6 +386,11 @@ function canMoveSegment(_e: any, segment: WebCutSegment, _rail: WebCutRail) {
 
 function handleClickSegment(item: WebCutSegment, rail: WebCutRail) {
     toggleSegment(item.id, rail.id);
+}
+
+function handleClickTransition(transition: any, rail: WebCutRail) {
+    // 当点击transition时，更新current对象，设置transitionId和railId
+    current.value = { railId: rail.id, transitionId: transition.id };
 }
 
 const exposes = {
@@ -438,7 +448,7 @@ manager.value = exposes;
                             class="webcute__manager__main__rail-segment"
                             :class="{
                                 'webcute__manager__main__rail-segment--selected': selected.some(i => i.segmentId === item.id && i.railId === rail.id),
-                                'webcute__manager__main__rail-segment--current': current === item.id,
+                                'webcute__manager__main__rail-segment--current': current?.segmentId === item.id && current?.railId === rail.id,
                             }"
                             :style="{
                                 '--segment-left': moveState.segment === item ? moveState.start + 'px' : (dragState.segment === item ? dragState.start + 'px' : timeToPx(item.start) + 'px'),
@@ -469,10 +479,14 @@ manager.value = exposes;
                             v-for="(transition,transitionIndex) in rail.transitions"
                             :key="transition.id"
                             class="webcute__manager__main__rail-segment webcute__manager__main__rail-transition"
+                            :class="{
+                                'webcute__manager__main__rail-segment--current': current?.transitionId === transition.id && current?.railId === rail.id,
+                            }"
                             :style="{
                                 '--segment-left': timeToPx(transition.start) + 'px',
                                 '--segment-width': timeToPx(transition.end - transition.start) + 'px'
                             }"
+                            @click="handleClickTransition(transition, rail)"
                         >
                             <slot name="mainTransition" :transition="transition" :rail="rail" :railIndex="railIndex" :transitionIndex="transitionIndex"></slot>
                         </div>

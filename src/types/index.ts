@@ -56,8 +56,12 @@ export type WebCutContext = {
         segmentId: string;
         railId: string;
     }[];
-    /** 当前选中的segment id，用于编辑区域编辑 */
-    current: null | string;
+    /** 当前选中的segment或transition，用于编辑区域编辑 */
+    current: null | {
+        railId: string;
+        segmentId?: string;
+        transitionId?: string;
+    };
 
     canUndo: boolean;
     canRedo: boolean;
@@ -136,6 +140,7 @@ export interface WebCutTransitionData {
     end: number;
     /** 转场效果配置 */
     config?: Record<string, any>;
+    sourceKeys?: string[];
 }
 
 export interface WebCutFilterData {
@@ -284,8 +289,9 @@ export type WebCutSource = {
     text?: string;
     fileId?: string;
     url?: string;
-    segmentId: string;
     railId: string;
+    segmentId?: string;
+    transationId?: string;
     meta: WebCutMaterialMeta;
 };
 
