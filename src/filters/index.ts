@@ -4,7 +4,6 @@ import { FilterManager } from './filter-manager';
 
 // 导入滤镜实现
 import {
-  WebCutCSSFilter,
   WebCutGrayscaleFilter,
   WebCutBlurFilter,
   WebCutBrightnessFilter,
