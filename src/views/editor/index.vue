@@ -15,6 +15,7 @@ import Panel from '../panel/index.vue';
 import ExportButton from '../export-button/index.vue';
 import { WebCutColors } from '../../types';
 import { useWebCutLocale } from '../../hooks/i18n';
+import WebCutToast from '../toast/index.vue';
 
 const darkMode = defineModel<boolean | null | undefined>('darkMode', { default: null });
 const language = defineModel<string | null | undefined>('language', { default: null });
@@ -100,6 +101,7 @@ function handleResized() {
             </n-split>
         </div>
         <slot name="footer"></slot>
+        <WebCutToast></WebCutToast>
     </WebCutProvider>
 </template>
 

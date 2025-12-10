@@ -40,7 +40,7 @@ const emit = defineEmits(['sort', 'resize']);
 const maxHeight = defineModel<number>('maxHeight', { default: 264 });
 const props = defineProps<WebCutManagerProps>();
 
-const { rails, manager, selected, current, toggleSegment, unselectSegment, selectSegment } = useWebCutContext();
+const { rails, manager, selected, current, sources, toggleSegment, unselectSegment, selectSegment } = useWebCutContext();
 const slots = useSlots();
 const { scroll1, scroll2, totalPx, timeToPx, pxToTime, pxOf1Frame, resetSegmentTime } = useWebCutManager();
 const t = useT();
@@ -49,7 +49,7 @@ const { push: pushHistory } = useWebCutHistory();
 const container = ref();
 
 const showDragable = ref(true);
-const dataList = ref<any[]>([]);
+const dataList = ref<WebCutRail[]>([]);
 const moveState = ref<any>({});
 const dragState = ref<any>({});
 const highlightedRailId = ref<string | null>(null);
@@ -337,6 +337,12 @@ function handleDragEnd(data: AdjustEventData, segment: WebCutSegment, rail: WebC
                 selectSegment(segment.id, targetRail.id);
             }
 
+            // 更新source中的railId值
+            const source = sources.value.get(segment.sourceKey);
+            if (source) {
+                source.railId = targetRail.id;
+            }
+
             // // 如果原轨道没有segment了，就从rails中移除该轨道
             // if (rail.segments.length === 0) {
             //     const railIndex = rails.value.findIndex(r => r.id === rail.id);
@@ -462,10 +468,10 @@ manager.value = exposes;
                         <div
                             v-for="(transition,transitionIndex) in rail.transitions"
                             :key="transition.id"
-                            class="webcute__manager__main__rail-segment webcute__manager__main__rail-segment--transition"
+                            class="webcute__manager__main__rail-segment webcute__manager__main__rail-transition"
                             :style="{
-                                '--segment-left': timeToPx(transition.startTime) + 'px',
-                                '--segment-width': timeToPx(transition.endTime - transition.startTime) + 'px'
+                                '--segment-left': timeToPx(transition.start) + 'px',
+                                '--segment-width': timeToPx(transition.end - transition.start) + 'px'
                             }"
                         >
                             <slot name="mainTransition" :transition="transition" :rail="rail" :railIndex="railIndex" :transitionIndex="transitionIndex"></slot>
@@ -632,5 +638,10 @@ manager.value = exposes;
     justify-content: flex-start;
     padding: 0 1em;
     margin-left: 4px;
+}
+.webcute__manager__main__rail-transition {
+    background-color: var(--primary-color);
+    z-index: 999;
+    opacity: .5;
 }
 </style>

@@ -102,7 +102,7 @@ export type WebCutRail = {
     type: WebCutMaterialType;
     segments: WebCutSegment[];
     /** 轨道上的转场效果列表 */
-    transitions: WebCutTransition[];
+    transitions: WebCutTransitionData[];
     mute?: boolean;
     hidden?: boolean;
     locked?: boolean;
@@ -125,29 +125,25 @@ export interface WebCutMaterial {
   updatedAt: number;
 };
 
-// 转场效果类型定义
-export type WebCutTransitionType = 'fade' | 'zoom' | 'slide' | 'rotate' | 'dissolve';
-
 // 转场效果配置
-export interface WebCutTransition {
-    /** 转场效果ID */
+export interface WebCutTransitionData {
     id: string;
-    /** 转场效果类型 */
-    type: WebCutTransitionType;
-    /** 转场效果名称（用于展示） */
+    /** 转场效果名（在transitionManager中注册的名称） */
     name: string;
-    /** 转场效果持续时间（微秒） */
-    duration: number;
-    /** 转场效果参数 */
-    params?: Record<string, any>;
-    /** 起始segment ID */
-    fromSegmentId: string;
-    /** 结束segment ID */
-    toSegmentId: string;
     /** 转场开始时间（在轨道上的绝对时间） */
-    startTime: number;
+    start: number;
     /** 转场结束时间（在轨道上的绝对时间） */
-    endTime: number;
+    end: number;
+    /** 转场效果配置 */
+    config?: Record<string, any>;
+}
+
+export interface WebCutFilterData {
+    id: string;
+    /** 滤镜名称（在filterManager中注册的名称） */
+    name: string;
+    /** 滤镜参数 */
+    params?: Record<string, any>;
 }
 
 // 动画类型定义
@@ -270,10 +266,7 @@ export type WebCutMaterialMeta = {
     },
 
     /** 滤镜配置数组，支持包含参数的对象形式 */
-    filters?: Array<{
-        key: string;
-        params?: Record<string, any>;
-    }>;
+    filters?: WebCutFilterData[];
 
     /** 自动调整视频尺寸到容器内，仅对视频和图片有效，带_scale后缀表示当图片小于视频视口时，会把图片放大以撑满整个视口 */
     autoFitRect?: 'contain' | 'cover' | 'contain_scale' | 'cover_scale';

@@ -1,21 +1,17 @@
 <script setup lang="ts">
-import { WebCutRail, WebCutTransition } from '../../../types';
-import { useT } from '../../../hooks/i18n';
+import { WebCutRail, WebCutTransitionData } from '../../../types';
 
-const props = defineProps<{
-    transition: WebCutTransition;
+defineProps<{
+    transition: WebCutTransitionData;
     rail: WebCutRail;
 }>();
 
-const t = useT();
 </script>
 
 <template>
   <div class="webcute__manager__main__rail-segment webcute__manager__main__rail-segment--transition">
     <!-- 转场效果的内容展示 -->
-    <div class="webcute__manager__main__rail-segment__content">
-      {{ transition.name }}
-    </div>
+    <div class="webcute__manager__main__rail-segment__content"></div>
   </div>
 </template>
 

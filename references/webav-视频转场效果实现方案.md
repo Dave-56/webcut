@@ -619,7 +619,7 @@ await com.addSprite(transitionSpr);
 export type WebCutTransitionType = 'fade' | 'zoom' | 'slide' | 'rotate' | 'dissolve' | 'gradient-wipe' | 'webgl';
 
 // 转场效果配置
-export interface WebCutTransition {
+export interface WebCutTransitionData {
   /** 转场效果ID */
   id: string;
   /** 转场效果类型 */
@@ -644,7 +644,7 @@ export type WebCutRail = {
     type: WebCutMaterialType;
     segments: WebCutSegment[];
     /** 轨道上的转场效果列表 */
-    transitions: WebCutTransition[];
+    transitions: WebCutTransitionData[];
     mute?: boolean;
     hidden?: boolean;
     locked?: boolean;
@@ -662,7 +662,7 @@ export type WebCutSegment = {
 };
 
 // 扩展WebCutTransition类型，添加关联的segment信息
-export interface WebCutTransition {
+export interface WebCutTransitionData {
     /** 转场效果ID */
     id: string;
     /** 转场效果类型 */
@@ -683,6 +683,154 @@ export interface WebCutTransition {
     endTime: number;
 }
 ```
+
+## 3.2 转场效果实现方式变更（基于静态帧的转场）
+
+### 3.2.1 变更背景
+
+在初始实现中，转场效果通过调整两个相邻片段的时间重叠来实现，这导致了以下问题：
+1. 打乱了现有时间轴设计
+2. 两个视频的声音重叠，影响用户体验
+3. 破坏了原有片段的完整性
+
+### 3.2.2 新方案设计
+
+根据用户需求，我们采用了基于静态帧的转场实现方式，主要特点包括：
+1. **不调整片段时间**：转场效果不会修改原有片段的start和end时间
+2. **使用静态帧**：取视频1的最后一帧作为转场起始帧，取视频2的第一帧作为转场结束帧
+3. **独立转场层**：转场效果作为独立的视觉元素，覆盖在原视频之上
+4. **不破坏原视频动画**：保持原有视频的动画效果不变
+5. **声音自然过渡**：原视频声音正常播放，转场期间不产生声音重叠
+
+### 3.2.3 实现原理
+
+1. **转场时间计算**：转场效果从第一个片段的结束时间开始，持续指定的duration时间
+2. **静态帧获取**：获取第一个片段的最后一帧和第二个片段的第一帧
+3. **转场帧生成**：基于两个静态帧和转场类型，生成转场期间的过渡帧
+4. **转场层渲染**：将生成的转场帧渲染到独立的转场层，覆盖在原视频之上
+
+### 3.2.4 实现代码
+
+```typescript
+// 应用转场效果到两个相邻的片段
+async function applyTransition(
+    railId: string,
+    fromSegmentIndex: number,
+    transitionType: string,
+    duration: number = 1e6,
+    params: Record<string, any> = {}
+): Promise<WebCutTransitionData | null> {
+    const rail = rails.value.find(r => r.id === railId);
+    if (!rail) return null;
+
+    const currentSegment = rail.segments[fromSegmentIndex];
+    const nextSegment = rail.segments[fromSegmentIndex + 1];
+    if (!nextSegment) return null;
+
+    // 转场效果从currentSegment的结束时间开始，持续duration时间
+    const transitionStart = currentSegment.end;
+    const transitionEnd = transitionStart + duration;
+
+    // 创建完整的转场对象
+    const preset = transitionPresets.find(p => p.key === transitionType);
+    const transition: WebCutTransitionData = {
+        id: createRandomString(16),
+        type: transitionType as any,
+        name: preset?.name || transitionType,
+        duration: duration,
+        params: { ...preset?.defaultParams, ...params },
+        fromSegmentId: currentSegment.id,
+        toSegmentId: nextSegment.id,
+        startTime: transitionStart,
+        endTime: transitionEnd,
+    };
+
+    // 将转场对象添加到rail的transitions列表
+    rail.transitions = rail.transitions || [];
+    rail.transitions.push(transition);
+
+    // 应用转场效果到sprites
+    await applyTransitionToSprites(currentSegment.id, nextSegment.id, transition);
+
+    // 保存到历史记录
+    await history.push();
+
+    return transition;
+}
+```
+
+### 3.2.5 渲染逻辑
+
+```typescript
+// 渲染逻辑修改为：先渲染所有普通segment，再渲染所有转场效果
+function renderSegments(rails: WebCutRail[]) {
+    // 1. 渲染所有普通segment
+    for (const rail of rails) {
+        for (const segment of rail.segments) {
+            renderSegment(segment, rail);
+        }
+    }
+
+    // 2. 渲染所有转场效果（转场效果特殊处理，确保显示在最上层）
+    for (const rail of rails) {
+        for (const transition of rail.transitions) {
+            renderTransition(transition, rail);
+        }
+    }
+}
+```
+
+### 3.2.6 优势
+
+1. **保持时间轴完整性**：不修改原有片段的时间，保持时间轴设计不变
+2. **改善用户体验**：避免声音重叠，转场效果更加自然
+3. **保持原视频动画**：不破坏原有视频的动画效果
+4. **简化实现逻辑**：不需要调整片段时间和后续片段的偏移
+5. **提高系统稳定性**：减少了对原有时间轴的修改，降低了出错风险
+
+## 3.3 转场效果管理器设计
+
+```typescript
+// 转场效果实现接口
+export interface TransitionEffect {
+  name: string;
+  type: 'animation' | 'frame' | 'webgl';
+  duration: number;
+  apply: (spr1: OffscreenSprite | VisibleSprite, spr2: OffscreenSprite | VisibleSprite, params?: Record<string, any>) => void;
+}
+
+// 转场效果管理器
+export class TransitionManager {
+  private effects: Map<string, TransitionEffect> = new Map();
+
+  // 注册转场效果
+  registerEffect(effect: TransitionEffect): void {
+    this.effects.set(effect.name, effect);
+  }
+
+  // 获取转场效果
+  getEffect(name: string): TransitionEffect | undefined {
+    return this.effects.get(name);
+  }
+
+  // 应用转场效果
+  applyEffect(
+    name: string,
+    spr1: OffscreenSprite | VisibleSprite,
+    spr2: OffscreenSprite | VisibleSprite,
+    params?: Record<string, any>
+  ): void {
+    const effect = this.effects.get(name);
+    if (effect) {
+      effect.apply(spr1, spr2, params);
+    }
+  }
+
+  // 获取所有支持的转场效果
+  getAllEffects(): TransitionEffect[] {
+    return Array.from(this.effects.values());
+  }
+}
 
 #### 3.1.3 转场效果管理器设计
 
@@ -746,7 +894,7 @@ export class TransitionManager {
 async function applyTransition(
   rail: WebCutRail,
   segmentIndex: number,
-  transition: WebCutTransition
+  transition: WebCutTransitionData
 ): Promise<void> {
   const currentSegment = rail.segments[segmentIndex];
   const nextSegment = rail.segments[segmentIndex + 1];
@@ -767,7 +915,7 @@ async function applyTransition(
   }
 
   // 4. 创建完整的转场对象
-  const fullTransition: WebCutTransition = {
+  const fullTransition: WebCutTransitionData = {
     ...transition,
     fromSegmentId: currentSegment.id,
     toSegmentId: nextSegment.id,
@@ -789,7 +937,7 @@ async function applyTransition(
 function applyTransitionToSprites(
   seg1: WebCutSegment,
   seg2: WebCutSegment,
-  transition: WebCutTransition
+  transition: WebCutTransitionData
 ): void {
   // 获取对应的sprites
   const spr1 = getSpriteBySegmentId(seg1.id);
@@ -1039,7 +1187,7 @@ function renderSegments(rails: WebCutRail[]) {
 }
 
 // 渲染转场效果
-function renderTransition(transition: WebCutTransition, rail: WebCutRail) {
+function renderTransition(transition: WebCutTransitionData, rail: WebCutRail) {
     // 根据transition的fromSegmentId和toSegmentId查找对应的segment
     const seg1 = rail.segments.find(s => s.id === transition.fromSegmentId);
     const seg2 = rail.segments.find(s => s.id === transition.toSegmentId);
@@ -1081,7 +1229,7 @@ async function handleOverlap(segment: WebCutSegment, overlapSegment: WebCutSegme
     const overlapDuration = overlapEnd - overlapStart;
 
     // 创建转场效果
-    const transition: WebCutTransition = {
+    const transition: WebCutTransitionData = {
         id: generateId(),
         type: 'fade',
         name: '淡入淡出',

@@ -26,7 +26,7 @@
     "build:esm": "vite build",
     "build:webcomponents": "cross-env BUILD_TYPE=webcomponents vite build",
     "build:webcomponents_bundle": "cross-env BUILD_TYPE=webcomponents_bundle vite build",
-    "tsc": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit",
     "preversion": "standard-version && exit 0",
     "release": "standard-version"
   },

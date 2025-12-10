@@ -3,6 +3,7 @@ import WebCutProvider from './views/provider/index.vue';
 import WebCutLangSwitch from './views/lang-switch/index.vue';
 import WebCutThemeSwitch from './views/theme-switch/index.vue';
 import WebCutLoading from './views/loading/index.vue';
+import WebCutToast from './views/toast/index.vue';
 // 播放器
 import WebCutPlayer from './views/player/index.vue';
 import WebCutPlayerScreen from './views/player/screen.vue';
@@ -86,6 +87,7 @@ export {
     DraggableHandler,
     RotateInput,
     WebCutLoading,
+    WebCutToast,
 };
 
 export {
@@ -112,6 +114,12 @@ export {
 export {
     useWebCutLocale,
 } from './hooks/i18n';
+export {
+    useWebCutToast,
+    type ToastType,
+    type ToastOptions,
+    type ToastState,
+} from './hooks/toast';
 
 export {
     renderTxt2ImgBitmap,
@@ -182,4 +190,10 @@ export {
     type WebCutProjectHistoryState,
     type WebCutProjectHistoryData,
     type WebCutColors,
+    type WebCutAnimationType,
+    type WebCutAnimationPreset,
+    type WebCutAnimationKeyframe,
+    type WebCutAnimationData,
+    type WebCutTransitionData,
 } from './types';
+

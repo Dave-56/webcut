@@ -18,6 +18,7 @@ import {
 } from 'naive-ui';
 import { computed, inject, provide } from 'vue';
 import { useWebCutLocale } from '../../hooks/i18n';
+import { createToastContext } from '../../hooks/toast';
 
 export interface WebCutProviderProps {
     data?: Partial<WebCutContext>;
@@ -105,12 +106,14 @@ const dateLngPkg = computed(() => {
     }
 });
 
+const { provide: provideToastContext } = createToastContext();
 const isInProvider = inject('WEBCUT_IN_PROVIDER', false);
 provide('WEBCUT_IN_PROVIDER', true);
 provideContext();
 provideThemeColors();
 provideDarkMode();
 provideLanguage();
+provideToastContext();
 </script>
 
 <template>
