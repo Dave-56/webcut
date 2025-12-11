@@ -151,6 +151,7 @@ export default {
   '溶解': 'Disolución',
 
   // Video/Audio Panel
+  '音量': 'Volumen',
   '请先选择视频片段': 'Por favor, seleccione primero un segmento de video',
   '请先选择音频片段': 'Por favor, seleccione primero un segmento de audio',
   '重置': 'Restablecer',

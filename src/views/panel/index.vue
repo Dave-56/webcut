@@ -15,7 +15,7 @@ const tab = ref('basic');
 const t = useT();
 
 watch(currentSegment, () => {
-    tab.value = 'basic';
+    tab.value = currentRail.value?.type === 'audio' ? 'audio' : 'basic';
 });
 </script>
 
