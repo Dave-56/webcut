@@ -4,6 +4,7 @@ import WebCutLangSwitch from './views/lang-switch/index.vue';
 import WebCutThemeSwitch from './views/theme-switch/index.vue';
 import WebCutLoading from './views/loading/index.vue';
 import WebCutToast from './views/toast/index.vue';
+import WebCutExportButton from './views/export-button/index.vue';
 // 播放器
 import WebCutPlayer from './views/player/index.vue';
 import WebCutPlayerScreen from './views/player/screen.vue';
@@ -32,9 +33,12 @@ import WebCutFlipHorizontalTool from './views/tools/flip-h/index.vue';
 import WebCutConcatTool from './views/tools/concat/index.vue';
 // 面板 - 编辑器右侧
 import WebCutPanel from './views/panel/index.vue'; // 集成所有面板
-import WebCutTextPanel from './views/panel/text/index.vue';
 import WebCutBasicPanel from './views/panel/basic/index.vue';
-import WebCutExportButton from './views/export-button/index.vue';
+import WebCutTextPanel from './views/panel/text/index.vue';
+import WebCutAudioPanel from './views/panel/audio/index.vue';
+import WebCutVideoPanel from './views/panel/video/index.vue';
+import WebCutFilterPanel from './views/panel/filter/index.vue';
+import WebCutAnimationPanel from './views/panel/animation/index.vue';
 // 素材库 - 编辑器左侧
 import WebCutLibrary from './views/library/index.vue';
 // 编辑器 - 高度集成，包含播放器、素材库、管理器、面板等
@@ -65,6 +69,10 @@ customElements.define('webcut-concat-tool', defineCustomElement(WebCutConcatTool
 customElements.define('webcut-panel', defineCustomElement(WebCutPanel, { shadowRoot: false }));
 customElements.define('webcut-text-panel', defineCustomElement(WebCutTextPanel, { shadowRoot: false }));
 customElements.define('webcut-basic-panel', defineCustomElement(WebCutBasicPanel, { shadowRoot: false }));
+customElements.define('webcut-audio-panel', defineCustomElement(WebCutAudioPanel, { shadowRoot: false }));
+customElements.define('webcut-video-panel', defineCustomElement(WebCutVideoPanel, { shadowRoot: false }));
+customElements.define('webcut-filter-panel', defineCustomElement(WebCutFilterPanel, { shadowRoot: false }));
+customElements.define('webcut-animation-panel', defineCustomElement(WebCutAnimationPanel, { shadowRoot: false }));
 customElements.define('webcut-time-clock', defineCustomElement(WebCutTimeClock, { shadowRoot: false }));
 customElements.define('webcut-export-button', defineCustomElement(WebCutExportButton, { shadowRoot: false }));
 customElements.define('webcut-lang-switch', defineCustomElement(WebCutLangSwitch, { shadowRoot: false }));
