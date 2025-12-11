@@ -1,7 +1,7 @@
 import { useWebCutContext } from './index';
 import { WebCutTransitionData, WebCutRail, WebCutSource } from '../types';
 import { ImgClip, MP4Clip, VisibleSprite } from '@webav/av-cliper';
-import { transitionManager } from '../transitions';
+import { transitionManager } from '../modules/transitions';
 import { createRandomString } from 'ts-fns';
 import { markRaw } from 'vue';
 

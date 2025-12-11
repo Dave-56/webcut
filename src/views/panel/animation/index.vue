@@ -21,7 +21,7 @@ import { fixNum, throttle } from 'ts-fns';
 import { WebCutAnimationType, WebCutAnimationData } from '../../../types';
 import { ScanObject20Filled } from '@vicons/fluent';
 import EffectIcon from '../../../components/effect-icon/index.vue';
-import { animationManager } from '../../../animations';
+import { animationManager } from '../../../modules/animations';
 
 const { currentSource, currentSegment, cursorTime } = useWebCutContext();
 const { applyAnimation } = useWebCutPlayer();

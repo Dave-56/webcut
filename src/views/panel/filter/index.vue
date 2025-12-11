@@ -5,7 +5,7 @@ import { NForm, NFormItem, NDivider, NSlider, NSelect } from 'naive-ui';
 import { useT } from '../../../hooks/i18n';
 import { useWebCutHistory } from '../../../hooks/history';
 import EffectIcon from '../../../components/effect-icon/index.vue';
-import { filterManager } from '../../../filters';
+import { filterManager } from '../../../modules/filters';
 import { WebCutFilterData } from '../../../types';
 import { clone, createRandomString } from 'ts-fns';
 

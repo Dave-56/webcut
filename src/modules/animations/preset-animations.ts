@@ -1,5 +1,5 @@
 import { WebCutBaseAnimation } from './base-animation';
-import { WebCutAnimationType, WebCutAnimationParams, WebCutAnimationKeyframeConfig } from '../types';
+import { WebCutAnimationType, WebCutAnimationParams, WebCutAnimationKeyframeConfig } from '../../types';
 
 /**
  * 淡入动画实现类

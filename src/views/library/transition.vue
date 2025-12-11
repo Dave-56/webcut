@@ -6,7 +6,7 @@ import { useT } from '../../hooks/i18n';
 import { useWebCutContext } from '../../hooks';
 import ScrollBox from '../../components/scroll-box/index.vue';
 import { useWebCutToast } from '../../hooks/toast';
-import { transitionManager } from '../../transitions';
+import { transitionManager } from '../../modules/transitions';
 import { WebCutTransitionData } from '../../types';
 import { clone, createRandomString } from 'ts-fns';
 import { useWebCutTransition } from '../../hooks/transition';

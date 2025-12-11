@@ -16,8 +16,8 @@ import { autoFitRect, measureVideoSize, measureImageSize } from '../libs';
 import { readFile, updateProjectState, writeFile } from '../db';
 import { PerformanceMark, mark } from '../libs/performance';
 import { aspectRatioMap } from '../constants';
-import { filterManager } from '../filters';
-import { animationManager } from '../animations';
+import { filterManager } from '../modules/filters';
+import { animationManager } from '../modules/animations';
 
 let context: WebCutContext | null | undefined = null;
 export function useWebCutContext(providedContext?: () => Partial<WebCutContext> | undefined | null) {

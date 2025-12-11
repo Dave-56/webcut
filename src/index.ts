@@ -175,18 +175,18 @@ export {
 export {
     transitionManager,
     WebCutBaseTransition,
-} from './transitions';
+} from './modules/transitions';
 
 // filters
 export {
     filterManager,
     WebCutBaseFilter,
-} from './filters';
+} from './modules/filters';
 
 export {
     animationManager,
     WebCutBaseAnimation,
-} from './animations';
+} from './modules/animations';
 
 // constants
 export { aspectRatioMap } from './constants';

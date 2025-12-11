@@ -1,6 +1,6 @@
-import { WebCutAnimationKeyframe, WebCutAnimationType, WebCutAnimationParams, WebCutAnimationKeyframeConfig } from "../types";
+import { WebCutAnimationKeyframe, WebCutAnimationType, WebCutAnimationParams, WebCutAnimationKeyframeConfig } from "../../types";
 import { each } from "ts-fns";
-import { autoFitRect } from '../libs';
+import { autoFitRect } from '../../libs';
 
 /**
  * 动画基类

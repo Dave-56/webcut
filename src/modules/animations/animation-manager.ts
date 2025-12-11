@@ -1,5 +1,5 @@
 import { WebCutBaseAnimation } from './base-animation';
-import { WebCutAnimationKeyframe, WebCutAnimationParams, WebCutAnimationType } from '../types';
+import { WebCutAnimationKeyframe, WebCutAnimationParams, WebCutAnimationType } from '../../types';
 import { VisibleSprite } from '@webav/av-cliper';
 
 /**
