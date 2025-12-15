@@ -13,7 +13,7 @@ import { WebCutRail, WebCutSegment } from '../../../types';
 import { Video } from '@vicons/carbon';
 import { NIcon } from 'naive-ui';
 import { useT } from '../../../hooks/i18n';
-import { useWebCutContext } from '../../../hooks';
+import { useWebCutContext, useWebCutPlayer } from '../../../hooks';
 import { useWebCutHistory } from '../../../hooks/history';
 import { useWebCutTransition } from '../../../hooks/transition';
 
@@ -42,6 +42,7 @@ const maxHeight = defineModel<number>('maxHeight', { default: 264 });
 const props = defineProps<WebCutManagerProps>();
 
 const { rails, manager, selected, current, sources, toggleSegment, unselectSegment, selectSegment } = useWebCutContext();
+const { resort } = useWebCutPlayer();
 const slots = useSlots();
 const { scroll1, scroll2, totalPx, timeToPx, pxToTime, pxOf1Frame, resetSegmentTime } = useWebCutManager();
 const t = useT();
@@ -367,6 +368,7 @@ function handleDragEnd(data: AdjustEventData, segment: WebCutSegment, rail: WebC
     resetSegmentTime(segment);
     syncTransitions(rail);
     syncTransitions(targetRail);
+    resort();
     pushHistory();
     emit('resize', { segment, rail: targetRail });
 }

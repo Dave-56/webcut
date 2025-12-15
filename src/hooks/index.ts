@@ -792,30 +792,7 @@ export function useWebCutPlayer() {
                 meta: sourceMeta,
             });
 
-            // 对所有segments, transitions上的sprite进行重新排序
-            rails.value.forEach((rail, railIndex) => {
-                rail.segments.forEach((seg, index) => {
-                    const { sourceKey } = seg;
-                    const source = sources.value.get(sourceKey);
-                    const spr = source?.sprite;
-                    if (spr) {
-                        spr.zIndex = railIndex * 1000000 + index;
-                    }
-                });
-                rail.transitions.forEach((tran, index) => {
-                    const { sourceKeys } = tran;
-                    if (!sourceKeys || sourceKeys.length === 0) {
-                        return;
-                    }
-                    sourceKeys.forEach((key) => {
-                        const source = sources.value.get(key);
-                        const spr = source?.sprite;
-                        if (spr) {
-                            spr.zIndex = railIndex * 1000000 + index * 1000;
-                        }
-                    });
-                });
-            });
+            resort();
 
             // 将rect固定到meta上，后续animation中需要用到
             setTimeout(async () => {
@@ -853,6 +830,35 @@ export function useWebCutPlayer() {
         } finally {
             loading.value = false;
         }
+    }
+
+    // 对所有segments, transitions上的sprite进行重新排序
+    function resort() {
+        rails.value.forEach((rail, railIndex) => {
+            rail.segments.forEach((seg, index) => {
+                const { sourceKey } = seg;
+                const source = sources.value.get(sourceKey);
+                const spr = source?.sprite;
+                if (spr) {
+                    spr.zIndex = railIndex * 1000000 + index;
+                    source.meta.zIndex = spr.zIndex;
+                }
+            });
+            rail.transitions.forEach((tran, index) => {
+                const { sourceKeys } = tran;
+                if (!sourceKeys || sourceKeys.length === 0) {
+                    return;
+                }
+                sourceKeys.forEach((key) => {
+                    const source = sources.value.get(key);
+                    const spr = source?.sprite;
+                    if (spr) {
+                        spr.zIndex = railIndex * 1000000 + index * 1000;
+                        source.meta.zIndex = spr.zIndex;
+                    }
+                });
+            });
+        });
     }
 
     function remove(key: string) {
@@ -1230,6 +1236,7 @@ export function useWebCutPlayer() {
         push,
         remove,
         clear,
+        resort,
         destroy,
         initTextMaterial,
         updateText,
