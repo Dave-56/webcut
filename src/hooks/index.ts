@@ -320,11 +320,22 @@ export function useWebCutPlayer() {
                 return;
             }
 
+            const sourceItem = [...sources.value.values()].find(item => item.sprite === spr);
+
             activeSpriteUnsubscribe = spr.on('propsChange', (props) => {
                 player.value?.emit('change', props);
+                // 如果是文本，禁止缩放（注意，是可以移动的，但是不允许缩放）
+                if (sourceItem?.type === 'text' && sourceItem.meta.rect && (typeof props.rect?.w === 'number' || typeof props.rect?.h === 'number')) {
+                    if (typeof sourceItem.meta.rect.w === 'number') {
+                        spr.rect.w = sourceItem.meta.rect.w;
+                    }
+                    if (typeof sourceItem.meta.rect.h === 'number') {
+                        spr.rect.h = sourceItem.meta.rect.h;
+                    }
+                    return false;
+                }
             });
 
-            const sourceItem = [...sources.value.values()].find(item => item.sprite === spr);
             if (sourceItem?.segmentId) {
                 const { railId, segmentId } = sourceItem;
                 selectSegment(segmentId, railId);
@@ -698,15 +709,6 @@ export function useWebCutPlayer() {
                 spr.interactable = meta.interactable;
             }
 
-            // 将rect固定到meta上，后续animation中需要用到
-            segMeta.rect = Object.assign(clone(meta.rect || {}), {
-                x: spr.rect.x,
-                y: spr.rect.y,
-                w: spr.rect.w,
-                h: spr.rect.h,
-                angle: spr.rect.angle,
-            });
-
             sprites.value.push(markRaw(spr));
 
             const key = meta.id || createRandomString(16);
@@ -787,6 +789,19 @@ export function useWebCutPlayer() {
                 segmentId: segment.id,
                 railId,
                 meta: sourceMeta,
+            });
+
+            // 将rect固定到meta上，后续animation中需要用到
+            setTimeout(async () => {
+                // 必须等ready才有值，否则没有值，记录的值是错误的
+                await spr.ready;
+                sourceMeta.rect = Object.assign(clone(meta.rect || {}), {
+                    x: spr.rect.x,
+                    y: spr.rect.y,
+                    w: spr.rect.w,
+                    h: spr.rect.h,
+                    angle: spr.rect.angle,
+                });
             });
 
             if (type === 'video') {
