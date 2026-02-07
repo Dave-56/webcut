@@ -19,20 +19,14 @@ import { PerformanceMark, mark } from '../../libs/performance';
 const t = useT();
 
 const { push } = useWebCutPlayer();
-const { projectFiles, files, addNewFile, removeFile } = useWebCutLibrary();
+const { projectFiles, addNewFile, removeFile } = useWebCutLibrary();
 const { fileUrl } = useWebCutLocalFile();
 const { push: pushHistory } = useWebCutHistory();
 
-const allVideoList = computed(() => {
-  const items = files.value.filter((file) => file.type.startsWith('video/')).sort((a, b) => (b.time || 0) - (a.time || 0));
-  return items;
-});
 const projectVideoList = computed(() => {
   const items = projectFiles.value.filter((file) => file.type.startsWith('video/')).sort((a, b) => (b.time || 0) - (a.time || 0));
   return items;
 });
-
-const actionType = ref<'import' | 'this' | 'all'>('this');
 
 // 右键菜单相关状态
 const showDropdown = ref(false);
@@ -51,7 +45,6 @@ const options = computed(() => [
 async function handleFileChange(e: any) {
   const file = e.file.file;
   await addNewFile(file);
-  actionType.value = 'this';
 }
 
 function handleClickVideo(e: any) {
@@ -109,15 +102,8 @@ async function handleAdd(material: any) {
 
 <template>
   <div class="webcut-library-panel">
-    <aside class="webcut-library-panel-aside">
-      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'this' }" @click="actionType = 'this'">{{ t('当前') }}</div>
-      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'import' }" @click="actionType = 'import'">{{ t('导入') }}</div>
-      <div class="webcut-library-panel-aside-btn" :class="{ 'webcut-library-panel-aside-btn--active': actionType === 'all' }" @click="actionType = 'all'">{{ t('全部') }}</div>
-    </aside>
-
-    <!-- 右侧素材列表 -->
     <main class="webcut-library-panel-main">
-      <div class="webcut-meterial-panel-upload" v-if="actionType === 'import'">
+      <div class="webcut-meterial-panel-upload">
         <n-upload multiple :show-file-list="false" accept="video/*,.mkv" @change="handleFileChange">
           <n-upload-dragger>
             <div>
@@ -129,7 +115,7 @@ async function handleAdd(material: any) {
         </n-upload>
       </div>
 
-      <scroll-box class="webcut-material-container" v-if="actionType === 'this'">
+      <scroll-box class="webcut-material-container">
         <div class="webcut-material-list">
           <div v-for="material in projectVideoList" :key="material.id" class="webcut-material-item" @contextmenu.stop="handleContextMenu($event, material)">
             <div class="webcut-material-preview">
@@ -151,29 +137,6 @@ async function handleAdd(material: any) {
           </div>
         </div>
       </scroll-box>
-
-      <scroll-box class="webcut-material-container" v-if="actionType === 'all'">
-        <div class="webcut-material-list">
-          <div v-for="material in allVideoList" :key="material.id" class="webcut-material-item">
-            <div class="webcut-material-preview">
-              <video :src="fileUrl(material.id)" v-if="fileUrl(material.id)" class="webcut-material-video" @click="handleClickVideo"></video>
-              <n-button class="webcut-add-button" size="tiny" type="primary" circle @click="handleAdd(material)">
-                <template #icon>
-                  <n-icon>
-                    <Add />
-                  </n-icon>
-                </template>
-              </n-button>
-            </div>
-            <div class="webcut-material-title">
-              {{ material.name }}
-            </div>
-          </div>
-          <div v-if="allVideoList.length === 0" class="webcut-empty-materials">
-            {{ t('暂无素材，请先导入素材') }}
-          </div>
-        </div>
-      </scroll-box>
     </main>
   </div>
 
@@ -187,25 +150,6 @@ async function handleAdd(material: any) {
   display: flex;
   height: 100%;
   margin: 0 4px;
-}
-
-.webcut-library-panel-aside {
-  width: 60px;
-  min-width: 60px;
-}
-
-.webcut-library-panel-aside-btn {
-  background: var(--webcut-grey-deep-color);
-  margin: 2px;
-  border-radius: 4px;
-  font-size: var(--webcut-font-size-tiny);
-  padding: 2px 4px;
-  cursor: pointer;
-  white-space: nowrap;
-
-  &--active {
-    background-color: var(--webcut-grey-color);
-  }
 }
 
 .webcut-library-panel-main {
