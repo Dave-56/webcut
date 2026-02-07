@@ -141,6 +141,8 @@ provideToastContext();
 </template>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 .webcut-root--inside,
 .webcut-root,
 .webcut-root :deep(.n-config-provider),
@@ -152,9 +154,11 @@ provideToastContext();
     flex: 1;
     height: 100%;
     width: 100%;
-    color: var(--text-color-base);
+    color: var(--webcut-text-primary);
     background-color: var(--webcut-background-color);
     font-size: var(--webcut-font-size-normal);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
+        Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', Arial, sans-serif;
 }
 
 .webcut-root :deep(.sprite-rect .ctrl-key-rotate) {

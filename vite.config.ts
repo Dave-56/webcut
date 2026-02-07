@@ -35,6 +35,10 @@ export default defineConfig(({ mode }) => ({
       ],
     }) : undefined,
   ].filter(Boolean),
+  optimizeDeps: {
+    // Limit pre-bundling to the dev entry to avoid scanning examples.
+    entries: [resolve(__dirname, 'index.html')],
+  },
   define: buildType.endsWith('_bundle') ? {
     'process.env.NODE_ENV': JSON.stringify(mode),
   } : undefined,
