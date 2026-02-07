@@ -22,6 +22,11 @@ const buildType = process.env.BUILD_TYPE || 'esm';
 
 // 导出配置
 export default defineConfig(({ mode }) => ({
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3001',
+    },
+  },
   plugins: [
     vue(),
     buildType === 'esm' ? dts({

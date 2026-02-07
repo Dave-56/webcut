@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { WebCutEditor } from '../src';
+import AiEditor from '../src/views/ai-editor/index.vue';
 </script>
 
 <template>
-    <WebCutEditor />
+    <AiEditor />
 </template>
