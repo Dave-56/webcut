@@ -25,7 +25,8 @@ const stageLabel = computed(() => {
   const labels: Record<string, string> = {
     uploading: 'Uploading',
     extracting: 'Extracting Frames',
-    analyzing: 'Analyzing Scenes',
+    analyzing_story: 'Analyzing Story',
+    analyzing_sound_design: 'Planning Sound Design',
     generating: 'Generating Audio',
     dubbing: 'Dubbing Dialogue',
     populating: 'Building Timeline',
@@ -49,19 +50,30 @@ const trackSummary = computed(() => {
   return {
     music: tracks.filter(t => t.type === 'music').length,
     sfx: tracks.filter(t => t.type === 'sfx').length,
-    ambience: tracks.filter(t => t.type === 'ambience').length,
     dialogue: tracks.filter(t => t.type === 'dialogue').length,
     total: tracks.length,
   };
 });
 
-const sceneSummary = computed(() => {
+const storySummary = computed(() => {
   if (!props.result) return null;
+  const { storyAnalysis } = props.result;
   return {
-    scenes: props.result.analysis.scenes.length,
-    speechSegments: props.result.analysis.speechSegments.length,
-    soundEffects: props.result.analysis.soundEffects.length,
-    mood: props.result.analysis.overallMood,
+    genre: storyAnalysis.genre,
+    setting: storyAnalysis.setting,
+    emotionalArc: storyAnalysis.emotionalArc,
+    beats: storyAnalysis.beats.length,
+    speechSegments: storyAnalysis.speechSegments.length,
+  };
+});
+
+const designSummary = computed(() => {
+  if (!props.result) return null;
+  const { soundDesignPlan } = props.result;
+  return {
+    scenes: soundDesignPlan.scenes.length,
+    music: soundDesignPlan.music.length,
+    sfx: soundDesignPlan.sfx.length,
   };
 });
 </script>
@@ -104,7 +116,7 @@ const sceneSummary = computed(() => {
     <!-- Empty State -->
     <div class="empty-state" v-if="!stage">
       <p>Upload a video to start AI sound design.</p>
-      <p class="empty-hint">The AI will analyze your video and generate background music, sound effects, ambience, and optional dubbing.</p>
+      <p class="empty-hint">The AI will analyze your video and generate background music, sound effects, and optional dubbing.</p>
     </div>
 
     <!-- Error -->
@@ -115,23 +127,44 @@ const sceneSummary = computed(() => {
     <!-- Results -->
     <div class="results-section" v-if="result">
       <n-collapse>
-        <n-collapse-item title="Scene Analysis" name="analysis">
+        <n-collapse-item title="Story Analysis" name="story">
           <div class="result-grid">
             <div class="result-item">
-              <span class="result-label">Scenes</span>
-              <span class="result-value">{{ sceneSummary?.scenes }}</span>
+              <span class="result-label">Genre</span>
+              <span class="result-value">{{ storySummary?.genre }}</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Setting</span>
+              <span class="result-value">{{ storySummary?.setting }}</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Story Beats</span>
+              <span class="result-value">{{ storySummary?.beats }}</span>
             </div>
             <div class="result-item">
               <span class="result-label">Speech Segments</span>
-              <span class="result-value">{{ sceneSummary?.speechSegments }}</span>
+              <span class="result-value">{{ storySummary?.speechSegments }}</span>
+            </div>
+          </div>
+          <div class="result-detail" v-if="storySummary?.emotionalArc">
+            <span class="result-label">Emotional Arc</span>
+            <p class="result-description">{{ storySummary.emotionalArc }}</p>
+          </div>
+        </n-collapse-item>
+
+        <n-collapse-item title="Sound Design Plan" name="design">
+          <div class="result-grid">
+            <div class="result-item">
+              <span class="result-label">Scenes</span>
+              <span class="result-value">{{ designSummary?.scenes }}</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Music Segments</span>
+              <span class="result-value">{{ designSummary?.music }}</span>
             </div>
             <div class="result-item">
               <span class="result-label">Sound Effects</span>
-              <span class="result-value">{{ sceneSummary?.soundEffects }}</span>
-            </div>
-            <div class="result-item">
-              <span class="result-label">Overall Mood</span>
-              <span class="result-value">{{ sceneSummary?.mood }}</span>
+              <span class="result-value">{{ designSummary?.sfx }}</span>
             </div>
           </div>
         </n-collapse-item>
@@ -147,10 +180,6 @@ const sceneSummary = computed(() => {
               <span class="result-value">{{ trackSummary?.sfx }}</span>
             </div>
             <div class="result-item">
-              <span class="result-label">Ambience</span>
-              <span class="result-value">{{ trackSummary?.ambience }}</span>
-            </div>
-            <div class="result-item">
               <span class="result-label">Dialogue</span>
               <span class="result-value">{{ trackSummary?.dialogue }}</span>
             </div>
@@ -162,11 +191,12 @@ const sceneSummary = computed(() => {
               :key="track.id"
               class="track-item"
             >
-              <n-tag :type="track.type === 'music' ? 'success' : track.type === 'sfx' ? 'warning' : track.type === 'ambience' ? 'info' : 'default'" size="small">
+              <n-tag :type="track.type === 'music' ? 'success' : track.type === 'sfx' ? 'warning' : 'default'" size="small">
                 {{ track.type }}
               </n-tag>
               <span class="track-label">{{ track.label }}</span>
               <span class="track-duration">{{ track.actualDurationSec.toFixed(1) }}s</span>
+              <n-tag v-if="track.loop" size="tiny" type="info">loop</n-tag>
             </div>
           </div>
         </n-collapse-item>
@@ -287,6 +317,18 @@ const sceneSummary = computed(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--webcut-text-primary);
+}
+
+.result-detail {
+  margin-top: 4px;
+}
+
+.result-description {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.8;
+  color: var(--webcut-text-primary);
+  line-height: 1.4;
 }
 
 .track-list {

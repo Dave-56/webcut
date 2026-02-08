@@ -1,16 +1,12 @@
-export interface SceneAnalysis {
-  scenes: Scene[];
-  speechSegments: SpeechSegment[];
-  soundEffects: SoundEffect[];
-  overallMood: string;
-}
+// ─── Pass 1: Story Analysis ───
 
-export interface Scene {
-  startTime: number;    // seconds
+export interface StoryBeat {
+  startTime: number;      // seconds
   endTime: number;
-  description: string;
-  mood: string;
-  suggestedAmbience: string;
+  description: string;    // rich, evocative description
+  emotion: string;        // emotional tone of this beat
+  significance: 'major' | 'minor' | 'transition';
+  environment: string;    // physical setting/location
 }
 
 export interface SpeechSegment {
@@ -21,30 +17,78 @@ export interface SpeechSegment {
   speakerLabel: string;
 }
 
-export interface SoundEffect {
-  time: number;         // seconds
+export interface StoryAnalysis {
+  summary: string;
+  genre: string;
+  setting: string;
+  emotionalArc: string;
+  beats: StoryBeat[];
+  speechSegments: SpeechSegment[];
+  durationSec: number;
+}
+
+// ─── Pass 2: Sound Design Plan ───
+
+export type SfxCategory = 'hard' | 'soft';
+
+export interface MixHierarchy {
+  dialogue: number;   // 0–1
+  music: number;
+  sfx: number;
+}
+
+export interface SoundDesignScene {
+  startTime: number;
+  endTime: number;
+  description: string;
+  mixHierarchy: MixHierarchy;
+}
+
+export interface PlannedSfx {
+  time: number;
   duration: number;
   description: string;
+  category: SfxCategory;
 }
+
+export interface PlannedMusic {
+  startTime: number;
+  endTime: number;
+  prompt: string;
+  genre: string;
+  style: string;
+  loop: boolean;
+}
+
+export interface SoundDesignPlan {
+  scenes: SoundDesignScene[];
+  sfx: PlannedSfx[];
+  music: PlannedMusic[];
+}
+
+// ─── Generated Output ───
 
 export interface GeneratedTrack {
   id: string;
-  type: 'music' | 'sfx' | 'ambience' | 'dialogue';
+  type: 'music' | 'sfx' | 'dialogue';
   filePath: string;
   startTimeSec: number;
   actualDurationSec: number;
   requestedDurationSec: number;
   loop: boolean;
   label: string;
+  volume: number;
+  sfxCategory?: SfxCategory;
 }
 
 export interface SoundDesignResult {
-  analysis: SceneAnalysis;
+  storyAnalysis: StoryAnalysis;
+  soundDesignPlan: SoundDesignPlan;
   tracks: GeneratedTrack[];
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'extracting' | 'analyzing' | 'generating' | 'dubbing' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'extracting' | 'analyzing_story' | 'analyzing_sound_design' | 'generating' | 'dubbing' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;

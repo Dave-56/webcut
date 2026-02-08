@@ -48,10 +48,9 @@ export function useAiPipeline() {
   const result = ref<SoundDesignResult | null>(null);
   const videoLoaded = ref(false);
 
-  // Rail IDs for the four audio track types
+  // Rail IDs for the audio track types (music, sfx, dialogue)
   let musicRailId = '';
   let sfxRailId = '';
-  let ambienceRailId = '';
   let dialogueRailId = '';
 
   // SSE cleanup function
@@ -63,13 +62,11 @@ export function useAiPipeline() {
   function createAudioRails() {
     musicRailId = createRandomString(16);
     sfxRailId = createRandomString(16);
-    ambienceRailId = createRandomString(16);
     dialogueRailId = createRandomString(16);
 
     rails.value.push(
       { id: musicRailId, type: 'audio', segments: [], transitions: [] },
       { id: sfxRailId, type: 'audio', segments: [], transitions: [] },
-      { id: ambienceRailId, type: 'audio', segments: [], transitions: [] },
       { id: dialogueRailId, type: 'audio', segments: [], transitions: [] },
     );
   }
@@ -89,12 +86,12 @@ export function useAiPipeline() {
 
   /**
    * Download an audio track and push it to the timeline.
+   * Uses track.volume from mix hierarchy and supports loop via requestedDurationSec.
    */
   async function downloadAndPushAudio(
     currentJobId: string,
     track: GeneratedTrack,
     railId: string,
-    volume: number,
   ) {
     const blob = await downloadAudioTrack(currentJobId, track.id);
     const ext = track.filePath?.endsWith('.wav') ? '.wav' : '.mp3';
@@ -102,10 +99,14 @@ export function useAiPipeline() {
     const file = new File([blob], filename, { type: ext === '.wav' ? 'audio/wav' : 'audio/mpeg' });
 
     const startUs = track.startTimeSec * 1e6;
-    const durationUs = track.actualDurationSec * 1e6;
+    // For looping tracks, use requestedDurationSec (full intended span)
+    // AudioClip with loop: true repeats audio within sprite's time.duration
+    const durationUs = track.loop
+      ? track.requestedDurationSec * 1e6
+      : track.actualDurationSec * 1e6;
 
     await push('audio', file, {
-      audio: { volume },
+      audio: { volume: track.volume, loop: track.loop },
       time: { start: startUs, duration: durationUs },
       withRailId: railId,
     });
@@ -126,31 +127,23 @@ export function useAiPipeline() {
 
     for (const track of designResult.tracks) {
       let railId: string;
-      let volume: number;
 
       switch (track.type) {
         case 'music':
           railId = musicRailId;
-          volume = 0.3;
           break;
         case 'sfx':
           railId = sfxRailId;
-          volume = 0.9;
-          break;
-        case 'ambience':
-          railId = ambienceRailId;
-          volume = 0.25;
           break;
         case 'dialogue':
           railId = dialogueRailId;
-          volume = 1.0;
           break;
         default:
           continue;
       }
 
       pushPromises.push(
-        downloadAndPushAudio(currentJobId, track, railId, volume).catch((err) => {
+        downloadAndPushAudio(currentJobId, track, railId).catch((err) => {
           console.error(`Failed to push track ${track.id}:`, err);
         }),
       );

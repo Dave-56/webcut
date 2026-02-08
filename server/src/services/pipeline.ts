@@ -1,13 +1,12 @@
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuid } from 'uuid';
-import { SceneAnalysis, GeneratedTrack, SoundDesignResult, JobProgress } from '../types.js';
+import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MixHierarchy } from '../types.js';
 import { extractFrames, extractAudio, adjustAudioTempo, getAudioDuration } from './video-utils.js';
-import { analyzeVideo, translateSpeechSegments } from './gemini.js';
+import { uploadMediaFiles, analyzeStory, createSoundDesignPlan, translateSpeechSegments } from './gemini.js';
 import {
-  generateBackgroundMusic,
+  generateMusic,
   generateSoundEffect,
-  generateAmbience,
   generateDubbedSpeech,
 } from './elevenlabs.js';
 import { addEvent } from './job-store.js';
@@ -29,6 +28,32 @@ function checkAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error('Aborted');
 }
 
+const DEFAULT_MIX: MixHierarchy = {
+  dialogue: 1.0,
+  music: 0.4,
+  sfx: 0.7,
+};
+
+/**
+ * Get volume for a track based on its type and the mix hierarchy
+ * of the scene containing its start time.
+ */
+function getVolumeForTrack(
+  type: 'music' | 'sfx' | 'dialogue',
+  startTimeSec: number,
+  scenes: SoundDesignScene[],
+): number {
+  const scene = scenes.find(s => startTimeSec >= s.startTime && startTimeSec < s.endTime);
+  const mix = scene?.mixHierarchy ?? DEFAULT_MIX;
+
+  switch (type) {
+    case 'dialogue': return mix.dialogue;
+    case 'music': return mix.music;
+    case 'sfx': return mix.sfx;
+    default: return 0.5;
+  }
+}
+
 export async function runPipeline(config: PipelineConfig): Promise<void> {
   const { jobId, videoPath, targetLanguage, geminiApiKey, elevenLabsApiKey, signal } = config;
 
@@ -38,7 +63,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
   const framesDir = videoPath.replace(/\.[^.]+$/, '_frames');
 
   try {
-    // Stage 1: Extract frames and audio
+    // ─── Stage 1: Extract frames and audio (0.00–0.10) ───
     emit(jobId, {
       stage: 'extracting',
       progress: 0.05,
@@ -50,19 +75,19 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     const audioPath = path.join(audioDir, 'original_audio.wav');
     const [framePaths] = await Promise.all([
       extractFrames(videoPath, framesDir, signal),
-      extractAudio(videoPath, audioPath, signal).catch(() => null), // video might have no audio
+      extractAudio(videoPath, audioPath, signal).catch(() => null),
     ]);
 
     checkAborted(signal);
 
-    // Stage 2: Gemini analysis
+    // ─── Stage 2: Story Analysis — Pass 1 (0.10–0.30) ───
     emit(jobId, {
-      stage: 'analyzing',
-      progress: 0.15,
-      message: `Analyzing ${framePaths.length} frames with Gemini...`,
+      stage: 'analyzing_story',
+      progress: 0.10,
+      message: `Uploading ${framePaths.length} frames to Gemini...`,
     });
 
-    const analysis = await analyzeVideo(
+    const fileRefs = await uploadMediaFiles(
       framePaths,
       fs.existsSync(audioPath) ? audioPath : null,
       geminiApiKey,
@@ -72,66 +97,94 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     checkAborted(signal);
 
     emit(jobId, {
-      stage: 'analyzing',
-      progress: 0.3,
-      message: `Found ${analysis.scenes.length} scenes, ${analysis.soundEffects.length} sound effects, ${analysis.speechSegments.length} speech segments`,
+      stage: 'analyzing_story',
+      progress: 0.18,
+      message: 'Analyzing story...',
     });
 
-    // Stage 3: Generate sounds in parallel
+    const storyAnalysis = await analyzeStory(fileRefs, geminiApiKey, signal);
+
+    checkAborted(signal);
+
+    emit(jobId, {
+      stage: 'analyzing_story',
+      progress: 0.30,
+      message: `Story analysis complete: ${storyAnalysis.beats.length} beats, genre: ${storyAnalysis.genre}`,
+    });
+
+    // ─── Stage 3: Sound Design Plan — Pass 2 (0.30–0.35) ───
+    emit(jobId, {
+      stage: 'analyzing_sound_design',
+      progress: 0.30,
+      message: 'Planning sound design...',
+    });
+
+    const soundDesignPlan = await createSoundDesignPlan(storyAnalysis, geminiApiKey, signal);
+
+    checkAborted(signal);
+
+    emit(jobId, {
+      stage: 'analyzing_sound_design',
+      progress: 0.35,
+      message: `Sound design plan: ${soundDesignPlan.music.length} music, ${soundDesignPlan.sfx.length} SFX segments`,
+    });
+
+    // ─── Stage 4: Generate music + SFX in parallel (0.35–0.80) ───
     emit(jobId, {
       stage: 'generating',
       progress: 0.35,
-      message: 'Generating music, sound effects, and ambience...',
+      message: 'Generating music and sound effects...',
     });
 
     const tracks: GeneratedTrack[] = [];
-
-    // Build all generation promises
     const generationPromises: Promise<void>[] = [];
 
-    // Background music for each scene
-    for (const scene of analysis.scenes) {
+    // Music from plan — uses ElevenLabs Music API (up to 5 min per clip)
+    for (const planned of soundDesignPlan.music) {
       const trackId = uuid();
       const filePath = path.join(audioDir, `music_${trackId}.mp3`);
-      const duration = scene.endTime - scene.startTime;
+      const duration = planned.endTime - planned.startTime;
 
       generationPromises.push(
-        generateBackgroundMusic(scene.mood, duration, filePath, elevenLabsApiKey)
+        generateMusic(planned.prompt, duration, filePath, elevenLabsApiKey)
           .then(({ actualDurationSec, loop }) => {
             tracks.push({
               id: trackId,
               type: 'music',
               filePath,
-              startTimeSec: scene.startTime,
+              startTimeSec: planned.startTime,
               actualDurationSec,
               requestedDurationSec: duration,
-              loop,
-              label: `Music: ${scene.mood} (${scene.description.slice(0, 30)})`,
+              loop: planned.loop || loop,
+              label: `Music: ${planned.genre} — ${planned.prompt.slice(0, 40)}`,
+              volume: getVolumeForTrack('music', planned.startTime, soundDesignPlan.scenes),
             });
           })
           .catch((err) => {
-            console.error(`Failed to generate music for scene:`, err.message);
+            console.error(`Failed to generate music:`, err.message);
           }),
       );
     }
 
-    // Sound effects
-    for (const sfx of analysis.soundEffects) {
+    // Sound effects from plan — uses ElevenLabs Sound Effects API
+    for (const planned of soundDesignPlan.sfx) {
       const trackId = uuid();
       const filePath = path.join(audioDir, `sfx_${trackId}.mp3`);
 
       generationPromises.push(
-        generateSoundEffect(sfx.description, sfx.duration, filePath, elevenLabsApiKey)
+        generateSoundEffect(planned.description, planned.duration, planned.category, filePath, elevenLabsApiKey)
           .then(({ actualDurationSec }) => {
             tracks.push({
               id: trackId,
               type: 'sfx',
               filePath,
-              startTimeSec: sfx.time,
+              startTimeSec: planned.time,
               actualDurationSec,
-              requestedDurationSec: sfx.duration,
+              requestedDurationSec: planned.duration,
               loop: false,
-              label: `SFX: ${sfx.description}`,
+              label: `SFX [${planned.category}]: ${planned.description}`,
+              volume: getVolumeForTrack('sfx', planned.time, soundDesignPlan.scenes),
+              sfxCategory: planned.category,
             });
           })
           .catch((err) => {
@@ -140,55 +193,28 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       );
     }
 
-    // Ambience for each scene
-    for (const scene of analysis.scenes) {
-      const trackId = uuid();
-      const filePath = path.join(audioDir, `ambience_${trackId}.mp3`);
-      const duration = scene.endTime - scene.startTime;
-
-      generationPromises.push(
-        generateAmbience(scene.suggestedAmbience, duration, filePath, elevenLabsApiKey)
-          .then(({ actualDurationSec, loop }) => {
-            tracks.push({
-              id: trackId,
-              type: 'ambience',
-              filePath,
-              startTimeSec: scene.startTime,
-              actualDurationSec,
-              requestedDurationSec: duration,
-              loop,
-              label: `Ambience: ${scene.suggestedAmbience}`,
-            });
-          })
-          .catch((err) => {
-            console.error(`Failed to generate ambience:`, err.message);
-          }),
-      );
-    }
-
-    // Run all sound generation in parallel
     await Promise.all(generationPromises);
 
     checkAborted(signal);
 
     emit(jobId, {
       stage: 'generating',
-      progress: 0.7,
+      progress: 0.80,
       message: `Generated ${tracks.length} audio tracks`,
     });
 
-    // Stage 4: Dubbing (if target language specified)
-    if (targetLanguage && analysis.speechSegments.length > 0) {
+    // ─── Stage 5: Dubbing (0.80–0.95) ───
+    if (targetLanguage && storyAnalysis.speechSegments.length > 0) {
       emit(jobId, {
         stage: 'dubbing',
-        progress: 0.75,
+        progress: 0.80,
         message: `Translating speech to ${targetLanguage}...`,
       });
 
       checkAborted(signal);
 
       const translatedSegments = await translateSpeechSegments(
-        analysis.speechSegments,
+        storyAnalysis.speechSegments,
         targetLanguage,
         geminiApiKey,
         signal,
@@ -196,15 +222,14 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
       emit(jobId, {
         stage: 'dubbing',
-        progress: 0.8,
+        progress: 0.85,
         message: 'Generating dubbed dialogue...',
       });
 
-      // Generate dubbed speech for each segment
       const dubbingPromises: Promise<void>[] = [];
       for (let i = 0; i < translatedSegments.length; i++) {
         const segment = translatedSegments[i];
-        const originalSegment = analysis.speechSegments[i];
+        const originalSegment = storyAnalysis.speechSegments[i];
         const trackId = uuid();
         const filePath = path.join(audioDir, `dialogue_${trackId}.mp3`);
         const targetDuration = originalSegment.endTime - originalSegment.startTime;
@@ -219,7 +244,6 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
             elevenLabsApiKey,
           )
             .then(async ({ actualDurationSec }) => {
-              // Adjust tempo if speech is too long
               let finalPath = filePath;
               let finalDuration = actualDurationSec;
               if (actualDurationSec > targetDuration * 1.2) {
@@ -238,6 +262,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 requestedDurationSec: targetDuration,
                 loop: false,
                 label: `Dialogue: "${segment.text.slice(0, 40)}..."`,
+                volume: getVolumeForTrack('dialogue', originalSegment.startTime, soundDesignPlan.scenes),
               });
             })
             .catch((err) => {
@@ -250,9 +275,10 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       checkAborted(signal);
     }
 
-    // Stage 5: Complete
+    // ─── Stage 6: Complete (1.00) ───
     const result: SoundDesignResult = {
-      analysis,
+      storyAnalysis,
+      soundDesignPlan,
       tracks: tracks.sort((a, b) => a.startTimeSec - b.startTimeSec),
     };
 
