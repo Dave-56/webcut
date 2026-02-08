@@ -177,6 +177,22 @@ Locales in `src/locales/` (zh-HK, zh-TW, en-US, ja-JP, de-DE, es-ES, fr-FR). The
 
 - **Rail Auto-assignment**: When pushing materials without specifying a rail, the system automatically finds or creates an appropriate rail, avoiding overlapping segments.
 
+## Known Issues & Fixes
+
+### AI Editor: WebCutPlayerScreen must always be mounted (v-show, not v-if)
+
+**Problem:** In `src/views/ai-editor/index.vue`, conditionally mounting `WebCutPlayerScreen` with `v-if` causes two bugs:
+
+1. **Sprites destroyed on mount:** `screen.vue` has `watch(viewport, ..., { immediate: true })` which calls `destroy()` when viewport is null (during setup, before DOM exists). If the screen mounts *after* `push()` has already added sprites, `destroy()` wipes them — leaving the play button disabled (`!sprites.length`).
+
+2. **Canvas sizing circular dependency:** If the player container uses `flex: 1` without `min-height: 0`, the canvas viewport renders at its intrinsic size (1440x1080), inflating the container. `fitBoxSize()` then reads the inflated dimensions via `getBoundingClientRect()`, computes `scale >= 1`, and never constrains the canvas. The button bar gets clipped by `overflow: hidden` on the n-split pane.
+
+**Fix (commit 47f5a94):**
+- Use `v-show` instead of `v-if`/`v-else` so the screen is always mounted (matches the original editor pattern in `src/views/editor/index.vue`)
+- Add `min-height: 0` + `overflow: hidden` on `.ai-editor-player-container` to break the flex sizing loop
+
+**Rule:** Any view that uses `WebCutPlayerScreen` should keep it always mounted. Never conditionally create/destroy it with `v-if` after sprites have been added.
+
 ## Code Language
 
 Some code comments are written in Chinese. The project is developed with a Chinese-speaking team, so Chinese comments are common in the codebase.
