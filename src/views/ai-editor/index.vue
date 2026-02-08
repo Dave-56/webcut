@@ -70,20 +70,17 @@ function handleUpload(file: File, targetLanguage?: string) {
           <n-split :default-size="0.65" :min="0.4" :max="0.8" @update:size="resize">
             <template #1>
               <div class="ai-editor-main">
-                <!-- Show upload zone or player based on state -->
                 <UploadZone
-                  v-if="!videoLoaded"
+                  v-show="!videoLoaded"
                   :disabled="isProcessing"
                   @upload="handleUpload"
                 />
-                <template v-else>
-                  <div class="ai-editor-player-container">
-                    <WebCutPlayerScreen class="ai-editor-player" />
-                  </div>
-                  <div class="ai-editor-player-buttons">
-                    <WebCutPlayerButton />
-                  </div>
-                </template>
+                <div v-show="videoLoaded" class="ai-editor-player-container">
+                  <WebCutPlayerScreen class="ai-editor-player" />
+                </div>
+                <div v-show="videoLoaded" class="ai-editor-player-buttons">
+                  <WebCutPlayerButton />
+                </div>
               </div>
             </template>
             <template #2>
@@ -149,6 +146,8 @@ function handleUpload(file: File, targetLanguage?: string) {
 
 .ai-editor-player-container {
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
   width: calc(100% - 32px);
   margin: 16px;
   margin-bottom: 8px;
