@@ -1,20 +1,16 @@
 import path from 'path';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import { v4 as uuid } from 'uuid';
-import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MixHierarchy } from '../types.js';
-import { extractFrames, extractAudio, adjustAudioTempo, getAudioDuration } from './video-utils.js';
-import { uploadMediaFiles, analyzeStory, createSoundDesignPlan, translateSpeechSegments } from './gemini.js';
-import {
-  generateMusic,
-  generateSoundEffect,
-  generateDubbedSpeech,
-} from './elevenlabs.js';
+import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel } from '../types.js';
+import { uploadVideoFile, analyzeStory, createSoundDesignPlan, MODEL } from './gemini.js';
+import { generateMusic } from './elevenlabs.js';
 import { addEvent } from './job-store.js';
 
 interface PipelineConfig {
   jobId: string;
   videoPath: string;
-  targetLanguage?: string;
+  userIntent?: string;
   geminiApiKey: string;
   elevenLabsApiKey: string;
   signal?: AbortSignal;
@@ -28,83 +24,86 @@ function checkAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error('Aborted');
 }
 
-const DEFAULT_MIX: MixHierarchy = {
-  dialogue: 1.0,
-  music: 0.4,
-  sfx: 0.7,
+const MUSIC_LEVEL_TO_VOLUME: Record<MusicMixLevel, number> = {
+  off: 0,
+  low: 0.25,
+  medium: 0.55,
+  high: 0.85,
 };
 
 /**
- * Get volume for a track based on its type and the mix hierarchy
+ * Get volume for a music track based on the music_level
  * of the scene containing its start time.
  */
 function getVolumeForTrack(
-  type: 'music' | 'sfx' | 'dialogue',
   startTimeSec: number,
   scenes: SoundDesignScene[],
 ): number {
   const scene = scenes.find(s => startTimeSec >= s.startTime && startTimeSec < s.endTime);
-  const mix = scene?.mixHierarchy ?? DEFAULT_MIX;
-
-  switch (type) {
-    case 'dialogue': return mix.dialogue;
-    case 'music': return mix.music;
-    case 'sfx': return mix.sfx;
-    default: return 0.5;
-  }
+  const level = scene?.music_level ?? 'medium';
+  return MUSIC_LEVEL_TO_VOLUME[level];
 }
 
 export async function runPipeline(config: PipelineConfig): Promise<void> {
-  const { jobId, videoPath, targetLanguage, geminiApiKey, elevenLabsApiKey, signal } = config;
+  const { jobId, videoPath, geminiApiKey, elevenLabsApiKey, signal } = config;
+  const userIntent = config.userIntent?.slice(0, 500);
 
   const audioDir = path.resolve('data/jobs', jobId, 'audio');
   fs.mkdirSync(audioDir, { recursive: true });
 
-  const framesDir = videoPath.replace(/\.[^.]+$/, '_frames');
-
   try {
-    // ─── Stage 1: Extract frames and audio (0.00–0.10) ───
+    // ─── Stage 1: Upload video to Gemini (0.00–0.15) ───
     emit(jobId, {
-      stage: 'extracting',
+      stage: 'uploading_to_gemini',
       progress: 0.05,
-      message: 'Extracting video frames and audio...',
+      message: 'Uploading video to Gemini...',
     });
 
     checkAborted(signal);
 
-    const audioPath = path.join(audioDir, 'original_audio.wav');
-    const [framePaths] = await Promise.all([
-      extractFrames(videoPath, framesDir, signal),
-      extractAudio(videoPath, audioPath, signal).catch(() => null),
-    ]);
+    const videoFileRef = await uploadVideoFile(videoPath, geminiApiKey, signal);
 
     checkAborted(signal);
 
-    // ─── Stage 2: Story Analysis — Pass 1 (0.10–0.30) ───
     emit(jobId, {
-      stage: 'analyzing_story',
-      progress: 0.10,
-      message: `Uploading ${framePaths.length} frames to Gemini...`,
+      stage: 'uploading_to_gemini',
+      progress: 0.15,
+      message: 'Video uploaded and processed by Gemini.',
     });
 
-    const fileRefs = await uploadMediaFiles(
-      framePaths,
-      fs.existsSync(audioPath) ? audioPath : null,
-      geminiApiKey,
-      signal,
-    );
+    // ─── Debug logging helper ───
+    const jobDir = path.resolve('data/jobs', jobId);
+    async function writeDebug(filename: string, content: string): Promise<void> {
+      try {
+        await fsp.writeFile(path.join(jobDir, filename), content, 'utf-8');
+      } catch (err: any) {
+        console.warn(`Failed to write debug file ${filename}:`, err.message);
+      }
+    }
 
-    checkAborted(signal);
+    // Write metadata
+    await writeDebug('0_meta.json', JSON.stringify({
+      model: MODEL,
+      timestamp: new Date().toISOString(),
+      userIntent: userIntent ?? null,
+    }, null, 2));
 
+    // ─── Stage 2: Story Analysis — Pass 1 (0.15–0.30) ───
     emit(jobId, {
       stage: 'analyzing_story',
-      progress: 0.18,
+      progress: 0.15,
       message: 'Analyzing story...',
     });
 
-    const storyAnalysis = await analyzeStory(fileRefs, geminiApiKey, signal);
+    const storyResult = await analyzeStory(videoFileRef, geminiApiKey, signal, userIntent);
+    const storyAnalysis = storyResult.data;
 
     checkAborted(signal);
+
+    // Write Pass 1 debug files (non-blocking)
+    writeDebug('1_prompt_story_analysis.txt', storyResult.promptSent);
+    writeDebug('2_story_analysis_raw.txt', storyResult.rawResponse);
+    writeDebug('3_story_analysis_parsed.json', JSON.stringify(storyAnalysis, null, 2));
 
     emit(jobId, {
       stage: 'analyzing_story',
@@ -119,34 +118,74 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       message: 'Planning sound design...',
     });
 
-    const soundDesignPlan = await createSoundDesignPlan(storyAnalysis, geminiApiKey, signal);
+    const soundDesignResult = await createSoundDesignPlan(
+      storyAnalysis,
+      storyAnalysis.durationSec,
+      geminiApiKey,
+      signal,
+      userIntent,
+    );
+    const soundDesignPlan = soundDesignResult.data;
 
     checkAborted(signal);
+
+    // Write Pass 2 debug files (non-blocking)
+    writeDebug('4_prompt_sound_design.txt', soundDesignResult.promptSent);
+    writeDebug('5_sound_design_raw.txt', soundDesignResult.rawResponse);
+    writeDebug('6_sound_design_parsed.json', JSON.stringify(soundDesignPlan, null, 2));
 
     emit(jobId, {
       stage: 'analyzing_sound_design',
       progress: 0.35,
-      message: `Sound design plan: ${soundDesignPlan.music.length} music, ${soundDesignPlan.sfx.length} SFX segments`,
+      message: `Sound design plan: ${soundDesignPlan.music_segments.length} music segments, style: ${soundDesignPlan.global_music_style}`,
     });
 
-    // ─── Stage 4: Generate music + SFX in parallel (0.35–0.80) ───
+    // ─── Stage 4: Generate music (0.35–0.95) ───
     emit(jobId, {
       stage: 'generating',
       progress: 0.35,
-      message: 'Generating music and sound effects...',
+      message: 'Generating music...',
     });
 
     const tracks: GeneratedTrack[] = [];
     const generationPromises: Promise<void>[] = [];
 
-    // Music from plan — uses ElevenLabs Music API (up to 5 min per clip)
-    for (const planned of soundDesignPlan.music) {
+    for (let i = 0; i < soundDesignPlan.music_segments.length; i++) {
+      const planned = soundDesignPlan.music_segments[i];
       const trackId = uuid();
       const filePath = path.join(audioDir, `music_${trackId}.mp3`);
       const duration = planned.endTime - planned.startTime;
 
+      // Skip segments marked as silent — still add to tracks for display
+      if (planned.skip) {
+        tracks.push({
+          id: trackId,
+          type: 'music',
+          filePath: '',
+          startTimeSec: planned.startTime,
+          actualDurationSec: duration,
+          requestedDurationSec: duration,
+          loop: false,
+          label: `Music (silent): ${planned.genre} — ${planned.prompt.slice(0, 40)}`,
+          volume: 0,
+          genre: planned.genre,
+          style: planned.style,
+          skip: true,
+        });
+        continue;
+      }
+
+      // Enrich prompt with global context
+      let enrichedPrompt = planned.prompt;
+      if (soundDesignPlan.global_music_style) {
+        enrichedPrompt += `. Style: ${soundDesignPlan.global_music_style}`;
+      }
+      if (soundDesignPlan.full_video_music_prompt) {
+        enrichedPrompt += `. Overall score: ${soundDesignPlan.full_video_music_prompt}`;
+      }
+
       generationPromises.push(
-        generateMusic(planned.prompt, duration, filePath, elevenLabsApiKey)
+        generateMusic(enrichedPrompt, duration, filePath, elevenLabsApiKey)
           .then(({ actualDurationSec, loop }) => {
             tracks.push({
               id: trackId,
@@ -157,38 +196,13 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
               requestedDurationSec: duration,
               loop: planned.loop || loop,
               label: `Music: ${planned.genre} — ${planned.prompt.slice(0, 40)}`,
-              volume: getVolumeForTrack('music', planned.startTime, soundDesignPlan.scenes),
+              volume: getVolumeForTrack(planned.startTime, soundDesignPlan.scenes),
+              genre: planned.genre,
+              style: planned.style,
             });
           })
           .catch((err) => {
             console.error(`Failed to generate music:`, err.message);
-          }),
-      );
-    }
-
-    // Sound effects from plan — uses ElevenLabs Sound Effects API
-    for (const planned of soundDesignPlan.sfx) {
-      const trackId = uuid();
-      const filePath = path.join(audioDir, `sfx_${trackId}.mp3`);
-
-      generationPromises.push(
-        generateSoundEffect(planned.description, planned.duration, planned.category, filePath, elevenLabsApiKey)
-          .then(({ actualDurationSec }) => {
-            tracks.push({
-              id: trackId,
-              type: 'sfx',
-              filePath,
-              startTimeSec: planned.time,
-              actualDurationSec,
-              requestedDurationSec: planned.duration,
-              loop: false,
-              label: `SFX [${planned.category}]: ${planned.description}`,
-              volume: getVolumeForTrack('sfx', planned.time, soundDesignPlan.scenes),
-              sfxCategory: planned.category,
-            });
-          })
-          .catch((err) => {
-            console.error(`Failed to generate SFX:`, err.message);
           }),
       );
     }
@@ -199,83 +213,11 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
     emit(jobId, {
       stage: 'generating',
-      progress: 0.80,
-      message: `Generated ${tracks.length} audio tracks`,
+      progress: 0.95,
+      message: `Generated ${tracks.filter(t => !t.skip).length} audio tracks`,
     });
 
-    // ─── Stage 5: Dubbing (0.80–0.95) ───
-    if (targetLanguage && storyAnalysis.speechSegments.length > 0) {
-      emit(jobId, {
-        stage: 'dubbing',
-        progress: 0.80,
-        message: `Translating speech to ${targetLanguage}...`,
-      });
-
-      checkAborted(signal);
-
-      const translatedSegments = await translateSpeechSegments(
-        storyAnalysis.speechSegments,
-        targetLanguage,
-        geminiApiKey,
-        signal,
-      );
-
-      emit(jobId, {
-        stage: 'dubbing',
-        progress: 0.85,
-        message: 'Generating dubbed dialogue...',
-      });
-
-      const dubbingPromises: Promise<void>[] = [];
-      for (let i = 0; i < translatedSegments.length; i++) {
-        const segment = translatedSegments[i];
-        const originalSegment = storyAnalysis.speechSegments[i];
-        const trackId = uuid();
-        const filePath = path.join(audioDir, `dialogue_${trackId}.mp3`);
-        const targetDuration = originalSegment.endTime - originalSegment.startTime;
-
-        dubbingPromises.push(
-          generateDubbedSpeech(
-            segment.text,
-            targetLanguage,
-            originalSegment.speakerLabel,
-            targetDuration,
-            filePath,
-            elevenLabsApiKey,
-          )
-            .then(async ({ actualDurationSec }) => {
-              let finalPath = filePath;
-              let finalDuration = actualDurationSec;
-              if (actualDurationSec > targetDuration * 1.2) {
-                const adjustedPath = filePath.replace('.mp3', '_adjusted.mp3');
-                finalPath = await adjustAudioTempo(filePath, adjustedPath, targetDuration);
-                if (finalPath !== filePath) {
-                  finalDuration = await getAudioDuration(finalPath);
-                }
-              }
-              tracks.push({
-                id: trackId,
-                type: 'dialogue',
-                filePath: finalPath,
-                startTimeSec: originalSegment.startTime,
-                actualDurationSec: finalDuration,
-                requestedDurationSec: targetDuration,
-                loop: false,
-                label: `Dialogue: "${segment.text.slice(0, 40)}..."`,
-                volume: getVolumeForTrack('dialogue', originalSegment.startTime, soundDesignPlan.scenes),
-              });
-            })
-            .catch((err) => {
-              console.error(`Failed to generate dubbed speech:`, err.message);
-            }),
-        );
-      }
-
-      await Promise.all(dubbingPromises);
-      checkAborted(signal);
-    }
-
-    // ─── Stage 6: Complete (1.00) ───
+    // ─── Stage 5: Complete (1.00) ───
     const result: SoundDesignResult = {
       storyAnalysis,
       soundDesignPlan,
@@ -285,7 +227,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     emit(jobId, {
       stage: 'complete',
       progress: 1.0,
-      message: `Sound design complete! Generated ${tracks.length} tracks.`,
+      message: `Sound design complete! Generated ${tracks.filter(t => !t.skip).length} tracks.`,
       result,
     });
   } catch (err: any) {

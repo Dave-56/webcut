@@ -2,7 +2,7 @@ import { ElevenLabsClient } from 'elevenlabs';
 import fs from 'fs';
 import path from 'path';
 import { getAudioDuration } from './video-utils.js';
-import type { SfxCategory } from '../types.js';
+// [SFX-ISOLATED] import type { SfxCategory } from '../types.js';
 
 let client: ElevenLabsClient | null = null;
 
@@ -82,7 +82,6 @@ const MAX_MUSIC_DURATION_MS = 300_000; // 5 minutes
 
 /**
  * Generate music using ElevenLabs Music API (POST /v1/music).
- * Uses the dedicated music generation model, not the sound effects API.
  */
 export async function generateMusic(
   prompt: string,
@@ -126,33 +125,31 @@ export async function generateMusic(
   };
 }
 
-/**
- * Generate a sound effect with category-based quality hints.
- */
-export async function generateSoundEffect(
-  description: string,
-  durationSec: number,
-  category: SfxCategory,
-  outputPath: string,
-  apiKey: string,
-): Promise<{ actualDurationSec: number }> {
-  const elevenLabs = getClient(apiKey);
-  const effectiveDuration = Math.min(durationSec, 22);
-  const qualityHint = category === 'hard' ? 'crisp, prominent, foreground' : 'subtle, background, textural';
-  const prompt = `Sound effect: ${description}, ${qualityHint}, ${effectiveDuration} seconds`;
-
-  const audio = await withRetry(() =>
-    elevenLabs.textToSoundEffects.convert({
-      text: prompt,
-      duration_seconds: effectiveDuration,
-    }),
-  );
-
-  await saveStreamToFile(audio, outputPath);
-  const actualDuration = await getAudioDuration(outputPath);
-
-  return { actualDurationSec: actualDuration };
-}
+// [SFX-ISOLATED] generateSoundEffect removed — isolating background music
+// export async function generateSoundEffect(
+//   description: string,
+//   durationSec: number,
+//   category: SfxCategory,
+//   outputPath: string,
+//   apiKey: string,
+// ): Promise<{ actualDurationSec: number }> {
+//   const elevenLabs = getClient(apiKey);
+//   const effectiveDuration = Math.min(durationSec, 22);
+//   const qualityHint = category === 'hard' ? 'crisp, prominent, foreground' : 'subtle, background, textural';
+//   const prompt = `Sound effect: ${description}, ${qualityHint}, ${effectiveDuration} seconds`;
+//
+//   const audio = await withRetry(() =>
+//     elevenLabs.textToSoundEffects.convert({
+//       text: prompt,
+//       duration_seconds: effectiveDuration,
+//     }),
+//   );
+//
+//   await saveStreamToFile(audio, outputPath);
+//   const actualDuration = await getAudioDuration(outputPath);
+//
+//   return { actualDurationSec: actualDuration };
+// }
 
 /**
  * Generate dubbed speech using ElevenLabs TTS.
