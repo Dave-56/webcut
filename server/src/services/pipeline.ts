@@ -4,13 +4,14 @@ import fsp from 'fs/promises';
 import { v4 as uuid } from 'uuid';
 import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel } from '../types.js';
 import { uploadVideoFile, analyzeStory, createSoundDesignPlan, MODEL } from './gemini.js';
-import { generateMusic } from './elevenlabs.js';
+import { generateMusic, generateSoundEffect } from './elevenlabs.js';
 import { addEvent } from './job-store.js';
 
 interface PipelineConfig {
   jobId: string;
   videoPath: string;
   userIntent?: string;
+  includeSfx?: boolean;
   geminiApiKey: string;
   elevenLabsApiKey: string;
   signal?: AbortSignal;
@@ -124,6 +125,8 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       geminiApiKey,
       signal,
       userIntent,
+      config.includeSfx,
+      videoFileRef,
     );
     const soundDesignPlan = soundDesignResult.data;
 
@@ -134,22 +137,26 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     writeDebug('5_sound_design_raw.txt', soundDesignResult.rawResponse);
     writeDebug('6_sound_design_parsed.json', JSON.stringify(soundDesignPlan, null, 2));
 
+    const sfxCount = soundDesignPlan.sfx_segments?.length ?? 0;
+    const sfxMsg = sfxCount > 0 ? `, ${sfxCount} SFX` : '';
     emit(jobId, {
       stage: 'analyzing_sound_design',
       progress: 0.35,
-      message: `Sound design plan: ${soundDesignPlan.music_segments.length} music segments, style: ${soundDesignPlan.global_music_style}`,
+      message: `Sound design plan: ${soundDesignPlan.music_segments.length} music segments${sfxMsg}, style: ${soundDesignPlan.global_music_style}`,
     });
 
-    // ─── Stage 4: Generate music (0.35–0.95) ───
+    // ─── Stage 4: Generate music and SFX (0.35–0.95) ───
+    const hasSfx = config.includeSfx !== false && (soundDesignPlan.sfx_segments?.length ?? 0) > 0;
     emit(jobId, {
       stage: 'generating',
       progress: 0.35,
-      message: 'Generating music...',
+      message: hasSfx ? 'Generating music and sound effects...' : 'Generating music...',
     });
 
     const tracks: GeneratedTrack[] = [];
     const generationPromises: Promise<void>[] = [];
 
+    // ── Music generation promises ──
     for (let i = 0; i < soundDesignPlan.music_segments.length; i++) {
       const planned = soundDesignPlan.music_segments[i];
       const trackId = uuid();
@@ -207,14 +214,53 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       );
     }
 
+    // ── SFX generation promises ──
+    if (hasSfx) {
+      const sfxSegments = soundDesignPlan.sfx_segments.slice(0, 8); // Hard cap at 8
+      for (let i = 0; i < sfxSegments.length; i++) {
+        const planned = sfxSegments[i];
+        if (planned.skip) continue;
+
+        const trackId = uuid();
+        const filePath = path.join(audioDir, `sfx_${trackId}.mp3`);
+        const duration = planned.endTime - planned.startTime;
+
+        generationPromises.push(
+          generateSoundEffect(planned.prompt, duration, planned.category, filePath, elevenLabsApiKey)
+            .then(({ actualDurationSec, loop }) => {
+              tracks.push({
+                id: trackId,
+                type: 'sfx',
+                filePath,
+                startTimeSec: planned.startTime,
+                actualDurationSec,
+                requestedDurationSec: duration,
+                loop,
+                label: `SFX: ${planned.prompt.slice(0, 50)}`,
+                volume: planned.volume,
+                category: planned.category,
+              });
+            })
+            .catch((err) => {
+              console.error(`Failed to generate SFX:`, err.message);
+            }),
+        );
+      }
+    }
+
     await Promise.all(generationPromises);
 
     checkAborted(signal);
 
+    const musicCount = tracks.filter(t => t.type === 'music' && !t.skip).length;
+    const sfxTrackCount = tracks.filter(t => t.type === 'sfx').length;
+    const countMsg = sfxTrackCount > 0
+      ? `Generated ${musicCount} music + ${sfxTrackCount} SFX tracks`
+      : `Generated ${musicCount} audio tracks`;
     emit(jobId, {
       stage: 'generating',
       progress: 0.95,
-      message: `Generated ${tracks.filter(t => !t.skip).length} audio tracks`,
+      message: countMsg,
     });
 
     // ─── Stage 5: Complete (1.00) ───
@@ -224,10 +270,15 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       tracks: tracks.sort((a, b) => a.startTimeSec - b.startTimeSec),
     };
 
+    const finalMusicCount = tracks.filter(t => t.type === 'music' && !t.skip).length;
+    const finalSfxCount = tracks.filter(t => t.type === 'sfx').length;
+    const completeMsg = finalSfxCount > 0
+      ? `Sound design complete! ${finalMusicCount} music + ${finalSfxCount} SFX tracks.`
+      : `Sound design complete! Generated ${finalMusicCount} tracks.`;
     emit(jobId, {
       stage: 'complete',
       progress: 1.0,
-      message: `Sound design complete! Generated ${tracks.filter(t => !t.skip).length} tracks.`,
+      message: completeMsg,
       result,
     });
   } catch (err: any) {
