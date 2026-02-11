@@ -3,10 +3,8 @@
 export interface StoryBeat {
   startTime: number;      // seconds
   endTime: number;
-  description: string;    // rich, evocative description
-  emotion: string;        // emotional tone of this beat
-  significance: 'major' | 'minor' | 'transition';
-  environment: string;    // physical setting/location
+  description: string;
+  emotion: string;
 }
 
 export interface SpeechSegment {
@@ -29,48 +27,51 @@ export interface StoryAnalysis {
 
 // ─── Pass 2: Sound Design Plan ───
 
-export type SfxCategory = 'hard' | 'soft';
+export type MusicMixLevel = 'off' | 'low' | 'medium' | 'high';
 
-export interface MixHierarchy {
-  dialogue: number;   // 0–1
-  music: number;
-  sfx: number;
-}
+export type SfxCategory = 'hard' | 'soft' | 'ambient';
 
 export interface SoundDesignScene {
   startTime: number;
   endTime: number;
   description: string;
-  mixHierarchy: MixHierarchy;
+  mood: string;
+  dialogue: boolean;
+  music_level: MusicMixLevel;
 }
 
-export interface PlannedSfx {
-  time: number;
-  duration: number;
-  description: string;
-  category: SfxCategory;
-}
-
-export interface PlannedMusic {
+export interface MusicSegment {
   startTime: number;
   endTime: number;
   prompt: string;
   genre: string;
   style: string;
+  skip: boolean;
   loop: boolean;
+}
+
+export interface SfxSegment {
+  startTime: number;
+  endTime: number;
+  prompt: string;
+  category: SfxCategory;
+  volume: number;
+  skip: boolean;
 }
 
 export interface SoundDesignPlan {
   scenes: SoundDesignScene[];
-  sfx: PlannedSfx[];
-  music: PlannedMusic[];
+  music_segments: MusicSegment[];
+  sfx_segments: SfxSegment[];
+  full_video_music_prompt: string;
+  global_music_style: string;
 }
 
 // ─── Generated Output ───
 
 export interface GeneratedTrack {
   id: string;
-  type: 'music' | 'sfx' | 'dialogue';
+  type: 'music' | 'sfx';
   filePath: string;
   startTimeSec: number;
   actualDurationSec: number;
@@ -78,17 +79,47 @@ export interface GeneratedTrack {
   loop: boolean;
   label: string;
   volume: number;
-  sfxCategory?: SfxCategory;
+  genre?: string;
+  style?: string;
+  skip?: boolean;
+  category?: SfxCategory;
+}
+
+export interface TrackGenerationResult {
+  planned: {
+    type: 'music' | 'sfx';
+    prompt: string;
+    startTimeSec: number;
+    durationSec: number;
+  };
+  status: 'success' | 'fallback' | 'failed';
+  track?: GeneratedTrack;
+  error?: string;
+  fallbackPrompt?: string;
+  retryCount: number;
+}
+
+export interface GenerationStats {
+  planned: number;
+  succeeded: number;
+  fallback: number;
+  failed: number;
+}
+
+export interface GenerationReport {
+  music: { results: TrackGenerationResult[]; stats: GenerationStats };
+  sfx: { results: TrackGenerationResult[]; stats: GenerationStats };
 }
 
 export interface SoundDesignResult {
   storyAnalysis: StoryAnalysis;
   soundDesignPlan: SoundDesignPlan;
   tracks: GeneratedTrack[];
+  generationReport?: GenerationReport;
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'extracting' | 'analyzing_story' | 'analyzing_sound_design' | 'generating' | 'dubbing' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sound_design' | 'generating' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;
@@ -99,7 +130,6 @@ export interface Job {
   id: string;
   status: 'running' | 'complete' | 'error' | 'cancelled';
   videoPath: string;
-  targetLanguage?: string;
   createdAt: number;
   events: SSEEvent[];
   result?: SoundDesignResult;

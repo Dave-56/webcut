@@ -20,7 +20,8 @@ router.get('/:jobId', (req, res) => {
   res.flushHeaders();
 
   // Replay missed events (supports reconnect via Last-Event-ID)
-  const lastEventId = req.headers['last-event-id'];
+  const lastEventIdRaw = req.headers['last-event-id'];
+  const lastEventId = Array.isArray(lastEventIdRaw) ? lastEventIdRaw[0] : lastEventIdRaw;
   let startIndex = 0;
   if (lastEventId) {
     const lastIdx = parseInt(lastEventId, 10);

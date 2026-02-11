@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { NSelect, NButton, NIcon } from 'naive-ui';
+import { ref } from 'vue';
+import { NIcon } from 'naive-ui';
 import { ArrowUpload20Filled } from '@vicons/fluent';
 
 const emit = defineEmits<{
-  (e: 'upload', file: File, targetLanguage?: string): void;
+  (e: 'upload', file: File): void;
 }>();
 
 const props = defineProps<{
@@ -12,22 +12,6 @@ const props = defineProps<{
 }>();
 
 const isDragOver = ref(false);
-const targetLanguage = ref<string | undefined>(undefined);
-
-const languageOptions = [
-  { label: 'No dubbing', value: '' },
-  { label: 'English', value: 'English' },
-  { label: 'Spanish', value: 'Spanish' },
-  { label: 'French', value: 'French' },
-  { label: 'German', value: 'German' },
-  { label: 'Japanese', value: 'Japanese' },
-  { label: 'Chinese (Mandarin)', value: 'Chinese' },
-  { label: 'Portuguese', value: 'Portuguese' },
-  { label: 'Italian', value: 'Italian' },
-  { label: 'Korean', value: 'Korean' },
-  { label: 'Hindi', value: 'Hindi' },
-];
-
 const fileInput = ref<HTMLInputElement | null>(null);
 
 function handleDragOver(e: DragEvent) {
@@ -71,8 +55,7 @@ function processFile(file: File) {
     alert('Please upload a video file (MP4, MOV, WebM, AVI, or MPEG)');
     return;
   }
-  const lang = targetLanguage.value || undefined;
-  emit('upload', file, lang);
+  emit('upload', file);
 }
 </script>
 
@@ -101,19 +84,6 @@ function processFile(file: File) {
         <p class="upload-zone-subtitle">or click to browse</p>
         <p class="upload-zone-hint">MP4, MOV, WebM, AVI (max 500MB)</p>
       </div>
-    </div>
-
-    <div class="language-select">
-      <label class="language-label">Dubbing Language</label>
-      <n-select
-        v-model:value="targetLanguage"
-        :options="languageOptions"
-        placeholder="No dubbing"
-        size="small"
-        :disabled="disabled"
-        clearable
-        style="width: 100%"
-      />
     </div>
   </div>
 </template>
@@ -180,19 +150,6 @@ function processFile(file: File) {
   font-size: 11px;
   margin: 0;
   opacity: 0.4;
-  color: var(--webcut-text-primary);
-}
-
-.language-select {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.language-label {
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0.7;
   color: var(--webcut-text-primary);
 }
 </style>

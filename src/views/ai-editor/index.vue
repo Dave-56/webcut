@@ -16,6 +16,7 @@ import {
 } from '../../hooks';
 import { useWebCutLocale } from '../../hooks/i18n';
 import { useAiPipeline } from '../../hooks/ai-pipeline';
+import type { AnalysisOptions } from '../../services/ai-client';
 import { ref } from 'vue';
 import { WebCutColors } from '../../types';
 
@@ -43,7 +44,12 @@ const {
   error,
   result,
   videoLoaded,
-  startPipeline,
+  phase,
+  videoMeta,
+  lastOptions,
+  loadVideo,
+  startAnalysis,
+  resetToIntent,
   cancel,
 } = useAiPipeline();
 
@@ -52,8 +58,20 @@ function handleResized() {
   manager.value?.resizeHeight();
 }
 
-function handleUpload(file: File, targetLanguage?: string) {
-  startPipeline(file, targetLanguage);
+function handleUpload(file: File) {
+  loadVideo(file);
+}
+function handleIntentSubmit(options: AnalysisOptions) {
+  startAnalysis(options);
+}
+function handleIntentSkip() {
+  startAnalysis();
+}
+function handleRegenerate() {
+  startAnalysis(lastOptions.value);
+}
+function handleAdjustSettings() {
+  resetToIntent();
 }
 </script>
 
@@ -85,6 +103,9 @@ function handleUpload(file: File, targetLanguage?: string) {
             </template>
             <template #2>
               <AiStatusPanel
+                :phase="phase"
+                :video-meta="videoMeta"
+                :last-options="lastOptions"
                 :is-processing="isProcessing"
                 :progress="progress"
                 :stage="stage"
@@ -94,6 +115,10 @@ function handleUpload(file: File, targetLanguage?: string) {
                 :result="result"
                 :job-id="jobId"
                 @cancel="cancel"
+                @submit="handleIntentSubmit"
+                @skip="handleIntentSkip"
+                @regenerate="handleRegenerate"
+                @adjust-settings="handleAdjustSettings"
               />
             </template>
             <template #resize-trigger>

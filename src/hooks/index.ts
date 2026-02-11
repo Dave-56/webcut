@@ -494,6 +494,36 @@ export function useWebCutPlayer() {
                         };
                     }
                 }
+
+                // Apply fade-in / fade-out envelope
+                if (!isMuted && result.audio.length > 0) {
+                    const fadeIn = source.meta.audio?.fadeIn;
+                    const fadeOut = source.meta.audio?.fadeOut;
+                    if (fadeIn || fadeOut) {
+                        const spriteDuration = source.sprite.time.duration;
+                        let fadeMultiplier = 1;
+                        if (fadeIn && _time < fadeIn) {
+                            fadeMultiplier *= _time / fadeIn;
+                        }
+                        if (fadeOut && _time > spriteDuration - fadeOut) {
+                            fadeMultiplier *= (spriteDuration - _time) / fadeOut;
+                        }
+                        if (fadeMultiplier < 0) fadeMultiplier = 0;
+                        if (fadeMultiplier !== 1) {
+                            const fadedAudio = result.audio.map((channel: Float32Array) => {
+                                const newChannel = new Float32Array(channel.length);
+                                for (let i = 0; i < channel.length; i++) {
+                                    newChannel[i] = channel[i] * fadeMultiplier;
+                                }
+                                return newChannel;
+                            });
+                            result = {
+                                ...result,
+                                audio: fadedAudio,
+                            };
+                        }
+                    }
+                }
             }
 
             return result;

@@ -266,6 +266,10 @@ export type WebCutMaterialMeta = {
         offset?: number;
         volume?: number;
         loop?: boolean;
+        /** 淡入时长，单位：微秒 */
+        fadeIn?: number;
+        /** 淡出时长，单位：微秒 */
+        fadeOut?: number;
     },
     video?: {
         /** 偏移时间，即视频将从该位置进行播放，单位：纳秒 */

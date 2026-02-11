@@ -136,7 +136,7 @@ function buildSoundDesignPrompt(durationSec: number, includeSfx: boolean): strin
       "startTime": <seconds>,
       "endTime": <seconds>,
       "prompt": "<detailed sound effect description: what the sound IS, its quality, and context. Example: 'Heavy wooden door slamming shut in a large hallway, reverberant', 'Gentle rain on a window pane with distant thunder'. Be specific — this goes directly to a sound effects generation AI.>",
-      "category": "<hard|soft — hard = sharp, distinct sounds (impacts, clicks, slams); soft = ambient, textural sounds (rain, wind, room tone)>",
+      "category": "<hard|soft|ambient — hard = sharp, distinct sounds (impacts, clicks, slams); soft = subtle, textural sounds (rustling, creaking); ambient = continuous environmental sounds (rain, wind, room tone, ocean waves)>",
       "volume": <0.0-1.0 — volume relative to music>,
       "skip": <true to omit this SFX>
     }
@@ -144,22 +144,26 @@ function buildSoundDesignPrompt(durationSec: number, includeSfx: boolean): strin
 
   const sfxRules = includeSfx ? `
 
-SFX RULES:
-- Aim for 1-2 SFX per scene, no more than 8 total across the entire video
+SFX RULES — SPOTTING FROM THE VIDEO:
+- RE-WATCH THE VIDEO before writing sfx_segments. For each beat, identify every moment where a visible on-screen action would produce a real-world sound: footsteps, object handling, doors opening/closing, impacts, device interactions, fabric movement, environmental changes.
+- Every visible physical action that would produce a sound MUST get its own sfx_segments entry. Do NOT skip actions just because music is playing.
+- Do NOT invent sounds for objects or actions that are not visible in the video frames. If you cannot see it happening on screen, do not add an SFX for it.
+- Minimum density: ~1 SFX per 5 seconds of video. This is a FLOOR, not a ceiling.
+- Genre-based density: action/horror → 2-3 per scene; animation → 2-3 per scene (no production audio exists — every sound must be designed, like a Foley stage); drama/romance → 1-2 per scene; documentary/commercial → 1 per scene; dialogue-heavy → reduce but don't eliminate SFX during speech
 - Minimum SFX duration: 2 seconds. Maximum: 22 seconds.
-- Genre-based density: action/horror → 1-2 per scene; documentary/commercial → 0-1 per scene; dialogue-heavy → skip SFX during speech
 - Volume guidance: 0.3-0.5 during dialogue, 0.6-0.8 normal, 0.8-1.0 for dramatic moments
 - Never place a hard SFX during a quiet/reflective music moment
-- SFX prompts should describe the SOUND itself, not the visual event — be specific about material, space, and quality
-- Prefer soft/ambient SFX for mood enhancement over hard SFX unless the scene demands it
-- If the video has no clear visual action that warrants SFX, return an empty sfx_segments array` : '';
+- For each SFX: first identify the visible action, then describe the SOUND it produces — material, space, and quality. Example: visible action "man walking across club floor" → SFX prompt "Confident footsteps on hard floor, leather shoes, steady rhythm, reverberant nightclub space"
+- Ambient SFX should complement the music texture (e.g., rain pairs with muted piano, wind pairs with sparse strings)
+- Only return an empty sfx_segments array if the video has literally no visible physical actions` : '';
 
-  return `You are a world-class sound designer and music supervisor. Based on the story analysis below, create a comprehensive sound design plan.
+  return `You are a world-class sound designer and music supervisor. Based on the story analysis below AND by re-watching the attached video, create a comprehensive sound design plan.
 
-Three guiding principles:
+Four guiding principles:
 1. Support the EMOTIONAL ARC — music should amplify what the audience should feel
 2. Let key moments BREATHE — silence is powerful
 3. Music should amplify what the audience should feel, not just describe what they see
+4. SPOT from the video — watch the video carefully and note every physical interaction, movement, and object manipulation that would produce a sound in the real world. Every SFX must be anchored to something visible on screen.
 
 STORY ANALYSIS:
 {STORY_JSON}
@@ -199,7 +203,7 @@ CRITICAL SOUND DESIGN RULES:
 - Videos under 2 minutes: 3-4 music segments max. 2-5 minutes: 4-6 max.
 - Set skip to true ONLY for segments where silence is genuinely more powerful than music
 - For music longer than 300 seconds, set loop to true
-- Music CAN span multiple scenes if the emotional tone is consistent
+- Music CAN span multiple scenes ONLY if adjacent scenes share the same music_level. Music segments MUST break at scene boundaries when adjacent scenes have different music_level values.
 - Music prompts should be rich: instruments, tempo (BPM), energy level, mood, specific style references
 - During dialogue scenes (dialogue: true), set music_level to "low" or "off"${sfxRules}
 - Return ONLY the JSON object, no markdown code blocks`;

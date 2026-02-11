@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue';
+import { ref, computed, type Ref, type ComputedRef } from 'vue';
 import { createRandomString } from 'ts-fns';
 import { useWebCutContext, useWebCutPlayer } from './index';
 import {
@@ -6,10 +6,22 @@ import {
   listenToJobStatus,
   downloadAudioTrack,
   cancelJob as cancelJobApi,
+  type AnalysisOptions,
   type JobProgress,
   type SoundDesignResult,
   type GeneratedTrack,
 } from '../services/ai-client';
+import { measureVideoSize, measureVideoDuration } from '../libs';
+
+export type AiPhase = 'upload' | 'intent' | 'processing' | 'complete' | 'error';
+
+export interface VideoMeta {
+  filename: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fileSizeMB: number;
+}
 
 export interface AiPipelineState {
   /** Whether the pipeline is currently processing */
@@ -30,6 +42,12 @@ export interface AiPipelineState {
   result: Ref<SoundDesignResult | null>;
   /** Whether video has been loaded */
   videoLoaded: Ref<boolean>;
+  /** Current phase of the pipeline */
+  phase: ComputedRef<AiPhase>;
+  /** Video metadata extracted after load */
+  videoMeta: Ref<VideoMeta | null>;
+  /** Last analysis options used */
+  lastOptions: Ref<AnalysisOptions>;
 }
 
 export function useAiPipeline() {
@@ -48,10 +66,25 @@ export function useAiPipeline() {
   const result = ref<SoundDesignResult | null>(null);
   const videoLoaded = ref(false);
 
-  // Rail IDs for the audio track types (music, sfx, dialogue)
+  // New state
+  const videoFile = ref<File | null>(null);
+  const videoMeta = ref<VideoMeta | null>(null);
+  const lastOptions = ref<AnalysisOptions>({});
+  let cancelledByUser = false; // Not reactive — internal flag only
+
+  // Computed phase
+  const phase = computed<AiPhase>(() => {
+    if (!videoLoaded.value && !stage.value) return 'upload';
+    if (videoLoaded.value && !isProcessing.value && !result.value && !error.value) return 'intent';
+    if (isProcessing.value) return 'processing';
+    if (result.value) return 'complete';
+    if (error.value) return 'error';
+    return 'upload';
+  });
+
+  // Rail IDs for audio tracks
   let musicRailId = '';
   let sfxRailId = '';
-  let dialogueRailId = '';
 
   // SSE cleanup function
   let closeSSE: (() => void) | null = null;
@@ -59,16 +92,18 @@ export function useAiPipeline() {
   /**
    * Pre-create empty rails so withRailId always finds them.
    */
-  function createAudioRails() {
+  function createAudioRails(hasSfx: boolean) {
     musicRailId = createRandomString(16);
-    sfxRailId = createRandomString(16);
-    dialogueRailId = createRandomString(16);
-
     rails.value.push(
       { id: musicRailId, type: 'audio', segments: [], transitions: [] },
-      { id: sfxRailId, type: 'audio', segments: [], transitions: [] },
-      { id: dialogueRailId, type: 'audio', segments: [], transitions: [] },
     );
+
+    if (hasSfx) {
+      sfxRailId = createRandomString(16);
+      rails.value.push(
+        { id: sfxRailId, type: 'audio', segments: [], transitions: [] },
+      );
+    }
   }
 
   /**
@@ -99,14 +134,27 @@ export function useAiPipeline() {
     const file = new File([blob], filename, { type: ext === '.wav' ? 'audio/wav' : 'audio/mpeg' });
 
     const startUs = track.startTimeSec * 1e6;
-    // For looping tracks, use requestedDurationSec (full intended span)
-    // AudioClip with loop: true repeats audio within sprite's time.duration
-    const durationUs = track.loop
-      ? track.requestedDurationSec * 1e6
-      : track.actualDurationSec * 1e6;
+    // Always use requestedDurationSec so the sprite clips to the planned segment span,
+    // preventing music from overrunning the video end
+    const durationUs = track.requestedDurationSec * 1e6;
+
+    const audioOpts: Record<string, any> = { volume: track.volume, loop: track.loop };
+    if (track.type === 'music') {
+      // Scale fades proportionally: 15% of duration, min 0.5s, max 3s
+      const durationSec = track.requestedDurationSec;
+      const fadeSec = Math.max(0.5, Math.min(3, durationSec * 0.15));
+      audioOpts.fadeIn = fadeSec * 1e6;
+      audioOpts.fadeOut = fadeSec * 1e6;
+    } else if (track.type === 'sfx' && track.category === 'ambient') {
+      // Ambient SFX get short fades; hard/soft SFX remain unfaded
+      const durationSec = track.requestedDurationSec;
+      const fadeSec = Math.max(0.5, Math.min(2, durationSec * 0.15));
+      audioOpts.fadeIn = fadeSec * 1e6;
+      audioOpts.fadeOut = fadeSec * 1e6;
+    }
 
     await push('audio', file, {
-      audio: { volume: track.volume, loop: track.loop },
+      audio: audioOpts,
       time: { start: startUs, duration: durationUs },
       withRailId: railId,
     });
@@ -115,33 +163,22 @@ export function useAiPipeline() {
   /**
    * Populate the timeline with generated tracks.
    */
-  async function populateTimeline(designResult: SoundDesignResult, currentJobId: string, targetLanguage?: string) {
+  async function populateTimeline(designResult: SoundDesignResult, currentJobId: string) {
     // Clear any existing audio
     clearAudioSources();
 
-    // Create fresh rails
-    createAudioRails();
+    // Create fresh rails — add SFX rail if there are SFX tracks
+    const hasSfx = designResult.tracks.some(t => t.type === 'sfx');
+    createAudioRails(hasSfx);
 
-    // Download and push each track in parallel per type
+    // Download and push each track in parallel
     const pushPromises: Promise<void>[] = [];
 
     for (const track of designResult.tracks) {
-      let railId: string;
+      // Skip silent segments — no audio to push
+      if (track.skip) continue;
 
-      switch (track.type) {
-        case 'music':
-          railId = musicRailId;
-          break;
-        case 'sfx':
-          railId = sfxRailId;
-          break;
-        case 'dialogue':
-          railId = dialogueRailId;
-          break;
-        default:
-          continue;
-      }
-
+      const railId = track.type === 'sfx' ? sfxRailId : musicRailId;
       pushPromises.push(
         downloadAndPushAudio(currentJobId, track, railId).catch((err) => {
           console.error(`Failed to push track ${track.id}:`, err);
@@ -150,43 +187,37 @@ export function useAiPipeline() {
     }
 
     await Promise.all(pushPromises);
-
-    // If dubbing is active, reduce original video volume
-    if (targetLanguage) {
-      await muteOriginalVideo();
-    }
   }
 
   /**
-   * Reduce the original video audio to near-silent for dubbing.
+   * Load a video file into the player and extract metadata.
    */
-  async function muteOriginalVideo() {
-    for (const [id, source] of sources.value) {
-      if (source.type === 'video') {
-        // Look up timing from the rail/segment
-        const rail = rails.value.find(r => r.id === source.railId);
-        const segment = rail?.segments.find(s => s.id === source.segmentId);
-        const startTime = segment?.start ?? 0;
-        const duration = segment ? segment.end - segment.start : undefined;
-        const videoFileId = source.fileId;
-        if (!videoFileId) break;
+  async function loadVideo(file: File) {
+    videoFile.value = file;
+    await push('video', file, { autoFitRect: 'contain' });
+    videoLoaded.value = true;
 
-        await remove(id);
-        await push('video', `file:${videoFileId}`, {
-          video: { volume: 0.05 },
-          time: { start: startTime, duration },
-          autoFitRect: 'contain',
-        });
-        break; // only one video expected
-      }
-    }
+    const [size, duration] = await Promise.all([
+      measureVideoSize(file),
+      measureVideoDuration(file),
+    ]);
+    videoMeta.value = {
+      filename: file.name,
+      durationSec: duration,
+      width: size.width,
+      height: size.height,
+      fileSizeMB: parseFloat((file.size / (1024 * 1024)).toFixed(1)),
+    };
   }
 
   /**
-   * Start the AI sound design pipeline.
+   * Start the AI sound design analysis with options.
    */
-  async function startPipeline(file: File, targetLanguage?: string) {
-    // Reset state
+  async function startAnalysis(options: AnalysisOptions = {}) {
+    if (!videoFile.value) return;
+
+    cancelledByUser = false;
+    lastOptions.value = options;
     isProcessing.value = true;
     progress.value = 0;
     stage.value = 'uploading';
@@ -196,15 +227,10 @@ export function useAiPipeline() {
     result.value = null;
 
     try {
-      // 1. Push video to WebCut player immediately (local playback)
-      await push('video', file, { autoFitRect: 'contain' });
-      videoLoaded.value = true;
-
-      // 2. Upload to backend for AI analysis
-      const { jobId: id } = await analyzeVideo(file, targetLanguage);
+      const { jobId: id } = await analyzeVideo(videoFile.value, options);
       jobId.value = id;
 
-      // 3. Listen for progress via SSE
+      // Listen for progress via SSE
       await new Promise<void>((resolve, reject) => {
         closeSSE = listenToJobStatus(
           id,
@@ -229,14 +255,32 @@ export function useAiPipeline() {
         );
       });
 
-      // 4. Populate timeline with results
-      if (result.value) {
+      // Populate timeline with results
+      const finalResult = result.value as SoundDesignResult | null;
+      if (finalResult) {
         stage.value = 'populating';
         message.value = 'Adding audio tracks to timeline...';
-        await populateTimeline(result.value, id, targetLanguage);
-        message.value = `Done! Added ${result.value.tracks.length} audio tracks.`;
+        await populateTimeline(finalResult, jobId.value!);
+        const addedMusic = finalResult.tracks.filter(t => t.type === 'music' && !t.skip).length;
+        const addedSfx = finalResult.tracks.filter(t => t.type === 'sfx').length;
+        let msg = addedSfx > 0
+          ? `Done! Added ${addedMusic} music + ${addedSfx} SFX tracks.`
+          : `Done! Added ${addedMusic} audio tracks.`;
+
+        const report = finalResult.generationReport;
+        if (report) {
+          const sfxFallback = report.sfx.stats.fallback;
+          const sfxFailed = report.sfx.stats.failed;
+          if (sfxFallback > 0) msg += ` ${sfxFallback} SFX recovered via fallback.`;
+          if (sfxFailed > 0) msg += ` ${sfxFailed} SFX failed to generate.`;
+        }
+        message.value = msg;
       }
     } catch (err: any) {
+      if (cancelledByUser) {
+        resetToIntent();
+        return;
+      }
       error.value = err.message;
       stage.value = 'error';
       message.value = err.message;
@@ -251,6 +295,7 @@ export function useAiPipeline() {
    * Cancel the current pipeline.
    */
   async function cancel() {
+    cancelledByUser = true;
     if (jobId.value) {
       try {
         await cancelJobApi(jobId.value);
@@ -261,11 +306,24 @@ export function useAiPipeline() {
     closeSSE?.();
     closeSSE = null;
     isProcessing.value = false;
-    stage.value = 'cancelled';
-    message.value = 'Pipeline cancelled';
+    stage.value = '';
+    message.value = '';
   }
 
-  const state: AiPipelineState = {
+  /**
+   * Reset to intent phase — clears audio/results but keeps video loaded.
+   */
+  function resetToIntent() {
+    clearAudioSources();
+    result.value = null;
+    error.value = null;
+    stage.value = '';
+    message.value = '';
+    events.value = [];
+    jobId.value = null;
+  }
+
+  return {
     isProcessing,
     progress,
     stage,
@@ -275,11 +333,12 @@ export function useAiPipeline() {
     error,
     result,
     videoLoaded,
-  };
-
-  return {
-    ...state,
-    startPipeline,
+    phase,
+    videoMeta,
+    lastOptions,
+    loadVideo,
+    startAnalysis,
+    resetToIntent,
     cancel,
   };
 }

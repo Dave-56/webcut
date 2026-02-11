@@ -62,9 +62,10 @@ router.post('/', upload.single('video'), (req, res) => {
   }
 
   const jobId = uuid();
-  const targetLanguage = req.body?.targetLanguage || undefined;
+  const userIntent = req.body?.userIntent || undefined;
+  const includeSfx = req.body?.includeSfx !== 'false'; // default: true
 
-  const job = createJob(jobId, req.file.path, targetLanguage);
+  const job = createJob(jobId, req.file.path);
 
   // Set up abort controller
   const abortController = new AbortController();
@@ -74,7 +75,8 @@ router.post('/', upload.single('video'), (req, res) => {
   runPipeline({
     jobId,
     videoPath: req.file.path,
-    targetLanguage,
+    userIntent,
+    includeSfx,
     geminiApiKey,
     elevenLabsApiKey,
     signal: abortController.signal,

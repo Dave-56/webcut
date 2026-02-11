@@ -139,6 +139,32 @@ export async function extractAudio(
 }
 
 /**
+ * Trim audio to an exact duration with a short fade-out at the cut point.
+ * If the file is already shorter than the target, returns the input path as-is.
+ */
+export async function trimAudioToLength(
+  inputPath: string,
+  outputPath: string,
+  targetDurationSec: number,
+  fadeOutSec = 0.5,
+): Promise<string> {
+  const actualDuration = await getAudioDuration(inputPath);
+  if (actualDuration <= targetDurationSec) return inputPath;
+
+  const fadeStart = Math.max(0, targetDurationSec - fadeOutSec);
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .duration(targetDurationSec)
+      .audioFilter(`afade=t=out:st=${fadeStart}:d=${fadeOutSec}`)
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(err))
+      .run();
+  });
+}
+
+/**
  * Adjust audio playback rate to fit a target duration.
  * Capped at 1.3x to avoid distortion.
  */

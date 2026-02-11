@@ -2,9 +2,14 @@
 import { computed } from 'vue';
 import { NProgress, NButton, NIcon, NTag, NCollapse, NCollapseItem } from 'naive-ui';
 import { Dismiss20Regular } from '@vicons/fluent';
-import type { JobProgress, SoundDesignResult } from '../../services/ai-client';
+import AiIntentForm from './ai-intent-form.vue';
+import type { AiPhase, VideoMeta } from '../../hooks/ai-pipeline';
+import type { AnalysisOptions, JobProgress, SoundDesignResult } from '../../services/ai-client';
 
 const props = defineProps<{
+  phase: AiPhase;
+  videoMeta: VideoMeta | null;
+  lastOptions: AnalysisOptions;
   isProcessing: boolean;
   progress: number;
   stage: string;
@@ -17,6 +22,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'cancel'): void;
+  (e: 'submit', options: AnalysisOptions): void;
+  (e: 'skip'): void;
+  (e: 'regenerate'): void;
+  (e: 'adjustSettings'): void;
 }>();
 
 const progressPercent = computed(() => Math.round(props.progress * 100));
@@ -24,11 +33,10 @@ const progressPercent = computed(() => Math.round(props.progress * 100));
 const stageLabel = computed(() => {
   const labels: Record<string, string> = {
     uploading: 'Uploading',
-    extracting: 'Extracting Frames',
+    uploading_to_gemini: 'Uploading to AI',
     analyzing_story: 'Analyzing Story',
     analyzing_sound_design: 'Planning Sound Design',
     generating: 'Generating Audio',
-    dubbing: 'Dubbing Dialogue',
     populating: 'Building Timeline',
     complete: 'Complete',
     error: 'Error',
@@ -48,9 +56,9 @@ const trackSummary = computed(() => {
   if (!props.result) return null;
   const tracks = props.result.tracks;
   return {
-    music: tracks.filter(t => t.type === 'music').length,
+    music: tracks.filter(t => t.type === 'music' && !t.skip).length,
     sfx: tracks.filter(t => t.type === 'sfx').length,
-    dialogue: tracks.filter(t => t.type === 'dialogue').length,
+    skipped: tracks.filter(t => t.skip).length,
     total: tracks.length,
   };
 });
@@ -72,9 +80,16 @@ const designSummary = computed(() => {
   const { soundDesignPlan } = props.result;
   return {
     scenes: soundDesignPlan.scenes.length,
-    music: soundDesignPlan.music.length,
-    sfx: soundDesignPlan.sfx.length,
+    musicSegments: soundDesignPlan.music_segments.length,
+    sfxSegments: soundDesignPlan.sfx_segments?.length ?? 0,
+    skipped: soundDesignPlan.music_segments.filter(s => s.skip).length,
+    globalStyle: soundDesignPlan.global_music_style,
   };
+});
+
+const hasOptionsEcho = computed(() => {
+  const o = props.lastOptions;
+  return o.creativeDirection || o.useExistingAudio;
 });
 </script>
 
@@ -87,12 +102,26 @@ const designSummary = computed(() => {
       </n-tag>
     </div>
 
-    <!-- Progress Section -->
-    <div class="progress-section" v-if="isProcessing || stage">
+    <!-- Upload Phase: Empty State -->
+    <div class="empty-state" v-if="phase === 'upload'">
+      <p>Upload a video to start AI sound design.</p>
+      <p class="empty-hint">The AI will analyze your video and generate background music.</p>
+    </div>
+
+    <!-- Intent Phase: Form -->
+    <AiIntentForm
+      v-if="phase === 'intent' && videoMeta"
+      :video-meta="videoMeta"
+      @submit="emit('submit', $event)"
+      @skip="emit('skip')"
+    />
+
+    <!-- Processing Phase -->
+    <div class="progress-section" v-if="phase === 'processing'">
       <n-progress
         type="line"
         :percentage="progressPercent"
-        :status="stage === 'error' ? 'error' : stage === 'complete' ? 'success' : 'default'"
+        :status="'default'"
         :indicator-placement="'inside'"
         :height="20"
         :border-radius="4"
@@ -100,7 +129,6 @@ const designSummary = computed(() => {
       <p class="progress-message">{{ message }}</p>
 
       <n-button
-        v-if="isProcessing"
         size="small"
         quaternary
         type="error"
@@ -111,97 +139,138 @@ const designSummary = computed(() => {
         </template>
         Cancel
       </n-button>
+
+      <!-- Echo of user options -->
+      <div class="options-echo" v-if="hasOptionsEcho">
+        <p class="options-echo-title">Your settings</p>
+        <p v-if="lastOptions.creativeDirection" class="options-echo-item">
+          <span class="options-echo-label">Direction:</span> {{ lastOptions.creativeDirection }}
+        </p>
+        <p v-if="lastOptions.useExistingAudio" class="options-echo-item">
+          <span class="options-echo-label">Audio ref:</span> Using existing audio
+        </p>
+      </div>
     </div>
 
-    <!-- Empty State -->
-    <div class="empty-state" v-if="!stage">
-      <p>Upload a video to start AI sound design.</p>
-      <p class="empty-hint">The AI will analyze your video and generate background music, sound effects, and optional dubbing.</p>
-    </div>
-
-    <!-- Error -->
-    <div class="error-section" v-if="error">
+    <!-- Error Phase -->
+    <div class="error-section" v-if="phase === 'error'">
       <p class="error-message">{{ error }}</p>
+      <n-button
+        size="small"
+        type="primary"
+        @click="emit('adjustSettings')"
+        style="margin-top: 8px;"
+      >
+        Try Again
+      </n-button>
     </div>
 
-    <!-- Results -->
-    <div class="results-section" v-if="result">
-      <n-collapse>
-        <n-collapse-item title="Story Analysis" name="story">
-          <div class="result-grid">
-            <div class="result-item">
-              <span class="result-label">Genre</span>
-              <span class="result-value">{{ storySummary?.genre }}</span>
-            </div>
-            <div class="result-item">
-              <span class="result-label">Setting</span>
-              <span class="result-value">{{ storySummary?.setting }}</span>
-            </div>
-            <div class="result-item">
-              <span class="result-label">Story Beats</span>
-              <span class="result-value">{{ storySummary?.beats }}</span>
-            </div>
-            <div class="result-item">
-              <span class="result-label">Speech Segments</span>
-              <span class="result-value">{{ storySummary?.speechSegments }}</span>
-            </div>
-          </div>
-          <div class="result-detail" v-if="storySummary?.emotionalArc">
-            <span class="result-label">Emotional Arc</span>
-            <p class="result-description">{{ storySummary.emotionalArc }}</p>
-          </div>
-        </n-collapse-item>
+    <!-- Complete Phase -->
+    <template v-if="phase === 'complete'">
+      <div class="progress-section">
+        <n-progress
+          type="line"
+          :percentage="100"
+          status="success"
+          :indicator-placement="'inside'"
+          :height="20"
+          :border-radius="4"
+        />
+        <p class="progress-message">{{ message }}</p>
+      </div>
 
-        <n-collapse-item title="Sound Design Plan" name="design">
-          <div class="result-grid">
-            <div class="result-item">
-              <span class="result-label">Scenes</span>
-              <span class="result-value">{{ designSummary?.scenes }}</span>
+      <div class="results-section" v-if="result">
+        <n-collapse>
+          <n-collapse-item title="Story Analysis" name="story">
+            <div class="result-grid">
+              <div class="result-item">
+                <span class="result-label">Genre</span>
+                <span class="result-value">{{ storySummary?.genre }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">Setting</span>
+                <span class="result-value">{{ storySummary?.setting }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">Story Beats</span>
+                <span class="result-value">{{ storySummary?.beats }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">Speech Segments</span>
+                <span class="result-value">{{ storySummary?.speechSegments }}</span>
+              </div>
             </div>
-            <div class="result-item">
-              <span class="result-label">Music Segments</span>
-              <span class="result-value">{{ designSummary?.music }}</span>
+            <div class="result-detail" v-if="storySummary?.emotionalArc">
+              <span class="result-label">Emotional Arc</span>
+              <p class="result-description">{{ storySummary.emotionalArc }}</p>
             </div>
-            <div class="result-item">
-              <span class="result-label">Sound Effects</span>
-              <span class="result-value">{{ designSummary?.sfx }}</span>
-            </div>
-          </div>
-        </n-collapse-item>
+          </n-collapse-item>
 
-        <n-collapse-item title="Generated Tracks" name="tracks">
-          <div class="result-grid">
-            <div class="result-item">
-              <span class="result-label">Music</span>
-              <span class="result-value">{{ trackSummary?.music }}</span>
+          <n-collapse-item title="Sound Design Plan" name="design">
+            <div class="result-grid">
+              <div class="result-item">
+                <span class="result-label">Scenes</span>
+                <span class="result-value">{{ designSummary?.scenes }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">Music Segments</span>
+                <span class="result-value">{{ designSummary?.musicSegments }}</span>
+              </div>
+              <div class="result-item" v-if="designSummary && designSummary.sfxSegments > 0">
+                <span class="result-label">SFX Segments</span>
+                <span class="result-value">{{ designSummary.sfxSegments }}</span>
+              </div>
+              <div class="result-item" v-if="designSummary && designSummary.skipped > 0">
+                <span class="result-label">Silent Segments</span>
+                <span class="result-value">{{ designSummary.skipped }}</span>
+              </div>
+              <div class="result-item" v-if="designSummary?.globalStyle">
+                <span class="result-label">Style</span>
+                <span class="result-value">{{ designSummary.globalStyle }}</span>
+              </div>
             </div>
-            <div class="result-item">
-              <span class="result-label">Sound Effects</span>
-              <span class="result-value">{{ trackSummary?.sfx }}</span>
-            </div>
-            <div class="result-item">
-              <span class="result-label">Dialogue</span>
-              <span class="result-value">{{ trackSummary?.dialogue }}</span>
-            </div>
-          </div>
+          </n-collapse-item>
 
-          <div class="track-list">
-            <div
-              v-for="track in result.tracks"
-              :key="track.id"
-              class="track-item"
-            >
-              <n-tag :type="track.type === 'music' ? 'success' : track.type === 'sfx' ? 'warning' : 'default'" size="small">
-                {{ track.type }}
-              </n-tag>
-              <span class="track-label">{{ track.label }}</span>
-              <span class="track-duration">{{ track.actualDurationSec.toFixed(1) }}s</span>
-              <n-tag v-if="track.loop" size="tiny" type="info">loop</n-tag>
+          <n-collapse-item title="Generated Tracks" name="tracks">
+            <div class="result-grid">
+              <div class="result-item">
+                <span class="result-label">Music</span>
+                <span class="result-value">{{ trackSummary?.music }}</span>
+              </div>
+              <div class="result-item" v-if="trackSummary && trackSummary.sfx > 0">
+                <span class="result-label">Sound Effects</span>
+                <span class="result-value">{{ trackSummary.sfx }}</span>
+              </div>
+              <div class="result-item" v-if="trackSummary && trackSummary.skipped > 0">
+                <span class="result-label">Skipped (silent)</span>
+                <span class="result-value">{{ trackSummary.skipped }}</span>
+              </div>
             </div>
-          </div>
-        </n-collapse-item>
-      </n-collapse>
-    </div>
+
+            <div class="track-list">
+              <div
+                v-for="track in result.tracks"
+                :key="track.id"
+                class="track-item"
+              >
+                <n-tag :type="track.skip ? 'default' : track.type === 'sfx' ? 'info' : 'success'" size="small">
+                  {{ track.skip ? 'silent' : track.type === 'sfx' ? 'sfx' : 'music' }}
+                </n-tag>
+                <span class="track-label">{{ track.label }}</span>
+                <span class="track-duration">{{ track.actualDurationSec.toFixed(1) }}s</span>
+                <n-tag v-if="track.loop" size="tiny" type="info">loop</n-tag>
+                <n-tag v-if="track.skip" size="tiny" type="warning">skip</n-tag>
+              </div>
+            </div>
+          </n-collapse-item>
+        </n-collapse>
+      </div>
+
+      <div class="complete-actions">
+        <n-button size="small" @click="emit('regenerate')">Regenerate</n-button>
+        <button class="adjust-settings-btn" @click="emit('adjustSettings')">Adjust Settings</button>
+      </div>
+    </template>
 
     <!-- Event Log -->
     <div class="event-log" v-if="events.length > 0">
@@ -288,6 +357,54 @@ const designSummary = computed(() => {
   margin: 0;
   font-size: 12px;
   color: #e53e3e;
+}
+
+.options-echo {
+  padding: 8px 12px;
+  background: rgba(128, 128, 128, 0.08);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.options-echo-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.6;
+  color: var(--webcut-text-primary);
+}
+
+.options-echo-item {
+  margin: 0;
+  font-size: 11px;
+  opacity: 0.7;
+  color: var(--webcut-text-primary);
+}
+
+.options-echo-label {
+  font-weight: 500;
+}
+
+.complete-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.adjust-settings-btn {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--webcut-text-primary);
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.adjust-settings-btn:hover {
+  opacity: 1;
 }
 
 .results-section {

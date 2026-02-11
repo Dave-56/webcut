@@ -57,12 +57,11 @@ export function getJob(id: string): Job | undefined {
   return jobs.get(id);
 }
 
-export function createJob(id: string, videoPath: string, targetLanguage?: string): Job {
+export function createJob(id: string, videoPath: string): Job {
   const job: Job = {
     id,
     status: 'running',
     videoPath,
-    targetLanguage,
     createdAt: Date.now(),
     events: [],
   };
@@ -139,14 +138,6 @@ function cleanupJobFiles(job: Job): void {
   try {
     if (job.videoPath && fs.existsSync(job.videoPath)) {
       fs.unlinkSync(job.videoPath);
-    }
-  } catch { /* ignore */ }
-
-  // Clean frame directory
-  const framesDir = job.videoPath?.replace(/\.[^.]+$/, '_frames');
-  try {
-    if (framesDir && fs.existsSync(framesDir)) {
-      fs.rmSync(framesDir, { recursive: true, force: true });
     }
   } catch { /* ignore */ }
 
