@@ -6,6 +6,7 @@ import {
   listenToJobStatus,
   downloadAudioTrack,
   cancelJob as cancelJobApi,
+  regenerateSfx,
   type AnalysisOptions,
   type JobProgress,
   type SoundDesignResult,
@@ -51,7 +52,7 @@ export interface AiPipelineState {
 }
 
 export function useAiPipeline() {
-  const { push, remove } = useWebCutPlayer();
+  const { push, remove, syncSourceMeta, syncSourceTickInterceptor } = useWebCutPlayer();
   const context = useWebCutContext();
   const { rails, sources } = context;
 
@@ -72,6 +73,23 @@ export function useAiPipeline() {
   const lastOptions = ref<AnalysisOptions>({});
   let cancelledByUser = false; // Not reactive — internal flag only
 
+  // Track-to-source mapping for quick-edit operations
+  const trackSourceMap = ref(new Map<string, string>());
+  const regeneratingTrackId = ref<string | null>(null);
+
+  // Selected AI track — driven by timeline segment selection
+  const selectedAiTrack = computed<GeneratedTrack | null>(() => {
+    if (!result.value) return null;
+    const source = context.currentSource.value;
+    if (!source) return null;
+    for (const [trackId, sourceKey] of trackSourceMap.value) {
+      if (sourceKey === source.key) {
+        return result.value.tracks.find(t => t.id === trackId) ?? null;
+      }
+    }
+    return null;
+  });
+
   // Computed phase
   const phase = computed<AiPhase>(() => {
     if (!videoLoaded.value && !stage.value) return 'upload';
@@ -84,6 +102,7 @@ export function useAiPipeline() {
 
   // Rail IDs for audio tracks
   let musicRailId = '';
+  let ambientRailId = '';
   let sfxRailId = '';
 
   // SSE cleanup function
@@ -91,12 +110,20 @@ export function useAiPipeline() {
 
   /**
    * Pre-create empty rails so withRailId always finds them.
+   * Up to 3 rails: music (always), ambient (if segments exist), sfx/foley (if actions exist).
    */
-  function createAudioRails(hasSfx: boolean) {
+  function createAudioRails(hasAmbient: boolean, hasSfx: boolean) {
     musicRailId = createRandomString(16);
     rails.value.push(
       { id: musicRailId, type: 'audio', segments: [], transitions: [] },
     );
+
+    if (hasAmbient) {
+      ambientRailId = createRandomString(16);
+      rails.value.push(
+        { id: ambientRailId, type: 'audio', segments: [], transitions: [] },
+      );
+    }
 
     if (hasSfx) {
       sfxRailId = createRandomString(16);
@@ -117,6 +144,7 @@ export function useAiPipeline() {
     }
     // Remove audio rails
     rails.value = rails.value.filter(r => r.type !== 'audio');
+    trackSourceMap.value.clear();
   }
 
   /**
@@ -145,19 +173,26 @@ export function useAiPipeline() {
       const fadeSec = Math.max(0.5, Math.min(3, durationSec * 0.15));
       audioOpts.fadeIn = fadeSec * 1e6;
       audioOpts.fadeOut = fadeSec * 1e6;
-    } else if (track.type === 'sfx' && track.category === 'ambient') {
-      // Ambient SFX get short fades; hard/soft SFX remain unfaded
+    } else if (track.type === 'ambient') {
+      // Ambient gets gentle fades: 15% of duration, 0.5–2s cap
+      const durationSec = track.requestedDurationSec;
+      const fadeSec = Math.max(0.5, Math.min(2, durationSec * 0.15));
+      audioOpts.fadeIn = fadeSec * 1e6;
+      audioOpts.fadeOut = fadeSec * 1e6;
+    } else if (track.type === 'sfx' && track.requestedDurationSec > 5) {
+      // Long SFX (>5s, continuous) get short fades
       const durationSec = track.requestedDurationSec;
       const fadeSec = Math.max(0.5, Math.min(2, durationSec * 0.15));
       audioOpts.fadeIn = fadeSec * 1e6;
       audioOpts.fadeOut = fadeSec * 1e6;
     }
 
-    await push('audio', file, {
+    const sourceKey = await push('audio', file, {
       audio: audioOpts,
       time: { start: startUs, duration: durationUs },
       withRailId: railId,
     });
+    trackSourceMap.value.set(track.id, sourceKey);
   }
 
   /**
@@ -167,9 +202,10 @@ export function useAiPipeline() {
     // Clear any existing audio
     clearAudioSources();
 
-    // Create fresh rails — add SFX rail if there are SFX tracks
+    // Create fresh rails — add ambient/SFX rails if tracks of those types exist
+    const hasAmbient = designResult.tracks.some(t => t.type === 'ambient');
     const hasSfx = designResult.tracks.some(t => t.type === 'sfx');
-    createAudioRails(hasSfx);
+    createAudioRails(hasAmbient, hasSfx);
 
     // Download and push each track in parallel
     const pushPromises: Promise<void>[] = [];
@@ -178,7 +214,11 @@ export function useAiPipeline() {
       // Skip silent segments — no audio to push
       if (track.skip) continue;
 
-      const railId = track.type === 'sfx' ? sfxRailId : musicRailId;
+      let railId: string;
+      if (track.type === 'ambient') railId = ambientRailId;
+      else if (track.type === 'sfx') railId = sfxRailId;
+      else railId = musicRailId;
+
       pushPromises.push(
         downloadAndPushAudio(currentJobId, track, railId).catch((err) => {
           console.error(`Failed to push track ${track.id}:`, err);
@@ -262,17 +302,19 @@ export function useAiPipeline() {
         message.value = 'Adding audio tracks to timeline...';
         await populateTimeline(finalResult, jobId.value!);
         const addedMusic = finalResult.tracks.filter(t => t.type === 'music' && !t.skip).length;
+        const addedAmbient = finalResult.tracks.filter(t => t.type === 'ambient').length;
         const addedSfx = finalResult.tracks.filter(t => t.type === 'sfx').length;
-        let msg = addedSfx > 0
-          ? `Done! Added ${addedMusic} music + ${addedSfx} SFX tracks.`
-          : `Done! Added ${addedMusic} audio tracks.`;
+        const msgParts: string[] = [`${addedMusic} music`];
+        if (addedAmbient > 0) msgParts.push(`${addedAmbient} ambient`);
+        if (addedSfx > 0) msgParts.push(`${addedSfx} SFX`);
+        let msg = `Done! Added ${msgParts.join(' + ')} tracks.`;
 
         const report = finalResult.generationReport;
         if (report) {
-          const sfxFallback = report.sfx.stats.fallback;
-          const sfxFailed = report.sfx.stats.failed;
-          if (sfxFallback > 0) msg += ` ${sfxFallback} SFX recovered via fallback.`;
-          if (sfxFailed > 0) msg += ` ${sfxFailed} SFX failed to generate.`;
+          const totalFallback = report.sfx.stats.fallback + report.ambient.stats.fallback;
+          const totalFailed = report.sfx.stats.failed + report.ambient.stats.failed;
+          if (totalFallback > 0) msg += ` ${totalFallback} recovered via fallback.`;
+          if (totalFailed > 0) msg += ` ${totalFailed} failed to generate.`;
         }
         message.value = msg;
       }
@@ -323,6 +365,118 @@ export function useAiPipeline() {
     jobId.value = null;
   }
 
+  /**
+   * Adjust playback speed of a track (pure frontend).
+   */
+  function adjustTrackSpeed(trackId: string, playbackRate: number) {
+    const sourceKey = trackSourceMap.value.get(trackId);
+    if (!sourceKey) return;
+    const source = sources.value.get(sourceKey);
+    if (!source) return;
+    source.sprite.time.playbackRate = playbackRate;
+  }
+
+  /**
+   * Extend a track's duration on the timeline (pure frontend).
+   */
+  function extendTrack(trackId: string, newDurationSec: number) {
+    const sourceKey = trackSourceMap.value.get(trackId);
+    if (!sourceKey) return;
+    const source = sources.value.get(sourceKey);
+    if (!source) return;
+
+    const newDurationUs = newDurationSec * 1e6;
+    source.sprite.time.duration = newDurationUs;
+
+    // Update the corresponding rail segment end time
+    const rail = rails.value.find(r => r.id === source.railId);
+    if (rail) {
+      const seg = rail.segments.find(s => s.sourceKey === sourceKey);
+      if (seg) {
+        seg.end = seg.start + newDurationUs;
+      }
+    }
+  }
+
+  /**
+   * Adjust volume of a track (pure frontend, applies immediately).
+   */
+  function adjustTrackVolume(trackId: string, volume: number) {
+    const sourceKey = trackSourceMap.value.get(trackId);
+    if (!sourceKey) return;
+    const source = sources.value.get(sourceKey);
+    if (!source) return;
+    syncSourceMeta(source, { audio: { volume } });
+    syncSourceTickInterceptor(sourceKey);
+    // Keep GeneratedTrack in sync for UI display
+    if (result.value) {
+      const track = result.value.tracks.find(t => t.id === trackId);
+      if (track) track.volume = volume;
+    }
+  }
+
+  /**
+   * Select a track's segment on the timeline (enables bidirectional selection).
+   */
+  function selectTrackOnTimeline(trackId: string) {
+    const sourceKey = trackSourceMap.value.get(trackId);
+    if (!sourceKey) return;
+    const source = sources.value.get(sourceKey);
+    if (!source?.segmentId) return;
+    context.selectSegment(source.segmentId, source.railId);
+  }
+
+  /**
+   * Regenerate a single SFX/ambient track with a new prompt via the server.
+   */
+  async function regenerateTrack(trackId: string, newPrompt: string) {
+    if (!result.value || !jobId.value) return;
+
+    const track = result.value.tracks.find(t => t.id === trackId);
+    if (!track || track.type === 'music') return;
+
+    regeneratingTrackId.value = trackId;
+    try {
+      const { actualDurationSec, loop } = await regenerateSfx({
+        jobId: jobId.value,
+        trackId,
+        prompt: newPrompt,
+        durationSec: track.requestedDurationSec,
+      });
+
+      // Remove old source from timeline
+      const oldSourceKey = trackSourceMap.value.get(trackId);
+      if (oldSourceKey) {
+        remove(oldSourceKey);
+        trackSourceMap.value.delete(trackId);
+      }
+
+      // Update track object in result
+      track.actualDurationSec = actualDurationSec;
+      track.loop = loop;
+      track.prompt = newPrompt;
+      track.label = `${track.type === 'sfx' ? 'SFX' : 'Ambient'}: ${newPrompt.slice(0, 50)}`;
+
+      // Download and push new audio to the correct rail
+      let railId: string;
+      if (track.type === 'ambient') railId = ambientRailId;
+      else railId = sfxRailId;
+
+      await downloadAndPushAudio(jobId.value, track, railId);
+
+      // Re-select the new segment so the panel stays on this track's edit card
+      const newSourceKey = trackSourceMap.value.get(trackId);
+      if (newSourceKey) {
+        const newSource = sources.value.get(newSourceKey);
+        if (newSource?.segmentId) {
+          context.selectSegment(newSource.segmentId, newSource.railId);
+        }
+      }
+    } finally {
+      regeneratingTrackId.value = null;
+    }
+  }
+
   return {
     isProcessing,
     progress,
@@ -336,9 +490,16 @@ export function useAiPipeline() {
     phase,
     videoMeta,
     lastOptions,
+    regeneratingTrackId,
+    selectedAiTrack,
     loadVideo,
     startAnalysis,
     resetToIntent,
     cancel,
+    adjustTrackSpeed,
+    extendTrack,
+    adjustTrackVolume,
+    selectTrackOnTimeline,
+    regenerateTrack,
   };
 }

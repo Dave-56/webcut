@@ -27,9 +27,23 @@ export const StoryAnalysisSchema = z.object({
   durationSec: z.number().default(0),
 });
 
+// ─── Pass 1.5: Action Spotting Schema ───
+
+const SpottedActionSchema = z.object({
+  startTime: z.number(),
+  endTime: z.number(),
+  action: z.string().default(''),
+  sound: z.string().default(''),
+});
+
+export const ActionSpottingSchema = z.object({
+  actions: z.array(SpottedActionSchema).default([]),
+});
+
 // ─── Pass 2: Sound Design Plan Schema ───
 
 const MusicMixLevelSchema = z.enum(['off', 'low', 'medium', 'high']).default('medium');
+const LoudnessClassSchema = z.enum(['quiet', 'moderate', 'loud']).default('moderate');
 
 const SoundDesignSceneSchema = z.object({
   startTime: z.number(),
@@ -50,21 +64,18 @@ const MusicSegmentSchema = z.object({
   loop: z.boolean().default(false),
 });
 
-const SfxCategorySchema = z.enum(['hard', 'soft', 'ambient']).default('hard');
-
-const SfxSegmentSchema = z.object({
+const AmbientSegmentSchema = z.object({
   startTime: z.number(),
   endTime: z.number(),
   prompt: z.string().default(''),
-  category: SfxCategorySchema,
-  volume: z.number().min(0).max(1).default(0.7),
-  skip: z.boolean().default(false),
+  loudness_class: LoudnessClassSchema,
+  loop: z.boolean().default(true),
 });
 
 export const SoundDesignPlanSchema = z.object({
   scenes: z.array(SoundDesignSceneSchema).default([]),
   music_segments: z.array(MusicSegmentSchema).default([]),
-  sfx_segments: z.array(SfxSegmentSchema).default([]),
+  ambient_segments: z.array(AmbientSegmentSchema).default([]),
   full_video_music_prompt: z.string().default(''),
   global_music_style: z.string().default('cinematic'),
 });

@@ -30,8 +30,7 @@ export interface StoryAnalysis {
 // ─── Pass 2: Sound Design Plan ───
 
 export type MusicMixLevel = 'off' | 'low' | 'medium' | 'high';
-
-export type SfxCategory = 'hard' | 'soft' | 'ambient';
+export type LoudnessClass = 'quiet' | 'moderate' | 'loud';
 
 export interface SoundDesignScene {
   startTime: number;
@@ -52,19 +51,18 @@ export interface MusicSegment {
   loop: boolean;
 }
 
-export interface SfxSegment {
+export interface AmbientSegment {
   startTime: number;
   endTime: number;
   prompt: string;
-  category: SfxCategory;
-  volume: number;
-  skip: boolean;
+  loudness_class: LoudnessClass;
+  loop: boolean;
 }
 
 export interface SoundDesignPlan {
   scenes: SoundDesignScene[];
   music_segments: MusicSegment[];
-  sfx_segments: SfxSegment[];
+  ambient_segments: AmbientSegment[];
   full_video_music_prompt: string;
   global_music_style: string;
 }
@@ -73,7 +71,7 @@ export interface SoundDesignPlan {
 
 export interface GeneratedTrack {
   id: string;
-  type: 'music' | 'sfx';
+  type: 'music' | 'ambient' | 'sfx';
   filePath: string;
   startTimeSec: number;
   actualDurationSec: number;
@@ -84,7 +82,7 @@ export interface GeneratedTrack {
   genre?: string;
   style?: string;
   skip?: boolean;
-  category?: SfxCategory;
+  prompt?: string;
 }
 
 export interface GenerationStats {
@@ -96,6 +94,7 @@ export interface GenerationStats {
 
 export interface GenerationReport {
   music: { stats: GenerationStats };
+  ambient: { stats: GenerationStats };
   sfx: { stats: GenerationStats };
 }
 
@@ -210,6 +209,27 @@ export async function downloadAudioTrack(
     throw new Error(`Failed to download audio track: ${res.status}`);
   }
   return res.blob();
+}
+
+/**
+ * Regenerate a single SFX or ambient track with a new prompt.
+ */
+export async function regenerateSfx(req: {
+  jobId: string;
+  trackId: string;
+  prompt: string;
+  durationSec: number;
+}): Promise<{ trackId: string; actualDurationSec: number; loop: boolean }> {
+  const res = await fetch(`${API_BASE}/regenerate-sfx`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(data.error || `Regeneration failed: ${res.status}`);
+  }
+  return res.json();
 }
 
 /**

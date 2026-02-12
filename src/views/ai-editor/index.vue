@@ -47,13 +47,21 @@ const {
   phase,
   videoMeta,
   lastOptions,
+  regeneratingTrackId,
+  selectedAiTrack,
   loadVideo,
   startAnalysis,
-  resetToIntent,
   cancel,
+  adjustTrackSpeed,
+  extendTrack,
+  adjustTrackVolume,
+  selectTrackOnTimeline,
+  regenerateTrack,
 } = useAiPipeline();
 
 const manager = ref();
+const showSettings = ref(false);
+
 function handleResized() {
   manager.value?.resizeHeight();
 }
@@ -62,16 +70,21 @@ function handleUpload(file: File) {
   loadVideo(file);
 }
 function handleIntentSubmit(options: AnalysisOptions) {
+  showSettings.value = false;
   startAnalysis(options);
 }
 function handleIntentSkip() {
   startAnalysis();
 }
 function handleRegenerate() {
+  showSettings.value = false;
   startAnalysis(lastOptions.value);
 }
 function handleAdjustSettings() {
-  resetToIntent();
+  showSettings.value = true;
+}
+function handleBackToResults() {
+  showSettings.value = false;
 }
 </script>
 
@@ -106,6 +119,7 @@ function handleAdjustSettings() {
                 :phase="phase"
                 :video-meta="videoMeta"
                 :last-options="lastOptions"
+                :show-settings="showSettings"
                 :is-processing="isProcessing"
                 :progress="progress"
                 :stage="stage"
@@ -114,11 +128,19 @@ function handleAdjustSettings() {
                 :error="error"
                 :result="result"
                 :job-id="jobId"
+                :regenerating-track-id="regeneratingTrackId"
+                :selected-ai-track="selectedAiTrack"
                 @cancel="cancel"
                 @submit="handleIntentSubmit"
                 @skip="handleIntentSkip"
                 @regenerate="handleRegenerate"
                 @adjust-settings="handleAdjustSettings"
+                @back-to-results="handleBackToResults"
+                @adjust-speed="adjustTrackSpeed"
+                @extend-track="extendTrack"
+                @regenerate-track="regenerateTrack"
+                @adjust-volume="adjustTrackVolume"
+                @select-track="selectTrackOnTimeline"
               />
             </template>
             <template #resize-trigger>

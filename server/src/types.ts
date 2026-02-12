@@ -25,11 +25,23 @@ export interface StoryAnalysis {
   durationSec: number;
 }
 
+// ─── Pass 1.5: Action Spotting ───
+
+export interface SpottedAction {
+  startTime: number;
+  endTime: number;
+  action: string;    // what's happening visually
+  sound: string;     // what it sounds like (ElevenLabs prompt)
+}
+
+export interface ActionSpotting {
+  actions: SpottedAction[];
+}
+
 // ─── Pass 2: Sound Design Plan ───
 
 export type MusicMixLevel = 'off' | 'low' | 'medium' | 'high';
-
-export type SfxCategory = 'hard' | 'soft' | 'ambient';
+export type LoudnessClass = 'quiet' | 'moderate' | 'loud';
 
 export interface SoundDesignScene {
   startTime: number;
@@ -50,19 +62,18 @@ export interface MusicSegment {
   loop: boolean;
 }
 
-export interface SfxSegment {
+export interface AmbientSegment {
   startTime: number;
   endTime: number;
   prompt: string;
-  category: SfxCategory;
-  volume: number;
-  skip: boolean;
+  loudness_class: LoudnessClass;
+  loop: boolean;
 }
 
 export interface SoundDesignPlan {
   scenes: SoundDesignScene[];
   music_segments: MusicSegment[];
-  sfx_segments: SfxSegment[];
+  ambient_segments: AmbientSegment[];
   full_video_music_prompt: string;
   global_music_style: string;
 }
@@ -71,7 +82,7 @@ export interface SoundDesignPlan {
 
 export interface GeneratedTrack {
   id: string;
-  type: 'music' | 'sfx';
+  type: 'music' | 'ambient' | 'sfx';
   filePath: string;
   startTimeSec: number;
   actualDurationSec: number;
@@ -82,12 +93,12 @@ export interface GeneratedTrack {
   genre?: string;
   style?: string;
   skip?: boolean;
-  category?: SfxCategory;
+  prompt?: string;
 }
 
 export interface TrackGenerationResult {
   planned: {
-    type: 'music' | 'sfx';
+    type: 'music' | 'ambient' | 'sfx';
     prompt: string;
     startTimeSec: number;
     durationSec: number;
@@ -108,6 +119,7 @@ export interface GenerationStats {
 
 export interface GenerationReport {
   music: { results: TrackGenerationResult[]; stats: GenerationStats };
+  ambient: { results: TrackGenerationResult[]; stats: GenerationStats };
   sfx: { results: TrackGenerationResult[]; stats: GenerationStats };
 }
 

@@ -6,6 +6,7 @@ import type { VideoMeta } from '../../hooks/ai-pipeline';
 
 const props = defineProps<{
   videoMeta: VideoMeta;
+  initialOptions?: AnalysisOptions;
 }>();
 
 const emit = defineEmits<{
@@ -13,10 +14,10 @@ const emit = defineEmits<{
   (e: 'skip'): void;
 }>();
 
-const userIntent = ref('');
-const creativeDirection = ref('');
-const useExistingAudio = ref(false);
-const includeSfx = ref(true);
+const userIntent = ref(props.initialOptions?.userIntent ?? '');
+const creativeDirection = ref(props.initialOptions?.creativeDirection ?? '');
+const useExistingAudio = ref(props.initialOptions?.useExistingAudio ?? false);
+const includeSfx = ref(props.initialOptions?.includeSfx !== false);
 
 const formattedDuration = computed(() => {
   const sec = props.videoMeta.durationSec;

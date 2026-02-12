@@ -2,10 +2,9 @@ import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import { v4 as uuid } from 'uuid';
-import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, TrackGenerationResult, GenerationStats, GenerationReport } from '../types.js';
-import { uploadVideoFile, analyzeStory, createSoundDesignPlan, MODEL } from './gemini.js';
-import { generateMusic, generateMusicWithCompositionPlan, generateSoundEffectWithFallback } from './elevenlabs.js';
-import type { MusicSegmentInput } from './elevenlabs.js';
+import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, LoudnessClass, TrackGenerationResult, GenerationStats, GenerationReport, ActionSpotting } from '../types.js';
+import { uploadVideoFile, analyzeStory, spotActions, createSoundDesignPlan, MODEL } from './gemini.js';
+import { generateMusic, generateSoundEffectWithFallback } from './elevenlabs.js';
 import { addEvent } from './job-store.js';
 
 interface PipelineConfig {
@@ -34,69 +33,36 @@ const MUSIC_LEVEL_TO_VOLUME: Record<MusicMixLevel, number> = {
 };
 
 /**
- * Duration-aware SFX cap: generous enough to never truncate
- * reasonable Gemini output, tight enough to catch hallucinations.
- * ~1 SFX per 10 seconds, floor 8, ceiling 24.
+ * Loudness-class volume lookup: base, dialogue, and high-music variants.
  */
-function getSfxCap(durationSec: number): number {
-  return Math.max(8, Math.min(24, Math.ceil(durationSec / 10)));
+const LOUDNESS_VOLUME: Record<LoudnessClass, { base: number; dialogue: number; highMusic: number }> = {
+  quiet:    { base: 0.40, dialogue: 0.25, highMusic: 0.35 },
+  moderate: { base: 0.55, dialogue: 0.35, highMusic: 0.45 },
+  loud:     { base: 0.70, dialogue: 0.45, highMusic: 0.55 },
+};
+
+/**
+ * Get volume for an ambient track using loudness class + scene context.
+ */
+function getAmbientVolume(startTimeSec: number, loudnessClass: LoudnessClass, scenes: SoundDesignScene[]): number {
+  const scene = scenes.find(s => startTimeSec >= s.startTime && startTimeSec < s.endTime);
+  const vol = LOUDNESS_VOLUME[loudnessClass] || LOUDNESS_VOLUME.moderate;
+  if (scene?.dialogue) return vol.dialogue;
+  if (scene?.music_level === 'high') return vol.highMusic;
+  return vol.base;
 }
 
 /**
- * If SFX count exceeds the cap, drop the most clustered ones
- * (closest to a neighbor) rather than blindly truncating chronologically.
+ * Assign SFX (Foley) volume based on scene context.
+ * More aggressive ducking under dialogue+music, louder when mix is sparse.
  */
-function trimSfxBySpacing<T extends { startTime: number; endTime: number }>(
-  segments: T[],
-  maxCount: number,
-): T[] {
-  if (segments.length <= maxCount) return segments;
-
-  // Work on a sorted copy with original indices
-  const sorted = segments
-    .map((s, i) => ({ seg: s, idx: i }))
-    .sort((a, b) => a.seg.startTime - b.seg.startTime);
-
-  while (sorted.length > maxCount) {
-    // For each SFX, compute minimum distance to either neighbor
-    let minGap = Infinity;
-    let dropIdx = 0;
-    for (let i = 0; i < sorted.length; i++) {
-      const mid = (sorted[i].seg.startTime + sorted[i].seg.endTime) / 2;
-      let gap = Infinity;
-      if (i > 0) {
-        const prevMid = (sorted[i - 1].seg.startTime + sorted[i - 1].seg.endTime) / 2;
-        gap = Math.min(gap, mid - prevMid);
-      }
-      if (i < sorted.length - 1) {
-        const nextMid = (sorted[i + 1].seg.startTime + sorted[i + 1].seg.endTime) / 2;
-        gap = Math.min(gap, nextMid - mid);
-      }
-      if (gap < minGap) {
-        minGap = gap;
-        dropIdx = i;
-      }
-    }
-    sorted.splice(dropIdx, 1);
-  }
-
-  // Return in original order
-  return sorted.sort((a, b) => a.idx - b.idx).map(s => s.seg);
-}
-
-/**
- * Determine whether the composition plan path can be used.
- * Returns false if any scene needs actual volume control that
- * a single continuous track can't provide:
- *  - Any scene with music_level 'off' (needs silence)
- *  - Any dialogue scene with music_level 'low' or 'off' (needs ducking)
- */
-function shouldUseCompositionPlan(scenes: SoundDesignScene[]): boolean {
-  const hasOffScenes = scenes.some(s => s.music_level === 'off');
-  const hasDuckingNeeded = scenes.some(
-    s => s.dialogue && (s.music_level === 'low' || s.music_level === 'off'),
-  );
-  return !hasOffScenes && !hasDuckingNeeded;
+function getSfxVolume(startTimeSec: number, scenes: SoundDesignScene[]): number {
+  const scene = scenes.find(s => startTimeSec >= s.startTime && startTimeSec < s.endTime);
+  if (scene?.dialogue && scene?.music_level === 'high') return 0.3;
+  if (scene?.dialogue) return 0.4;
+  if (scene?.music_level === 'high') return 0.5;
+  if (scene?.music_level === 'low' || scene?.music_level === 'off') return 0.8;
+  return 0.65;
 }
 
 /**
@@ -175,25 +141,24 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
     emit(jobId, {
       stage: 'analyzing_story',
-      progress: 0.30,
+      progress: 0.28,
       message: `Story analysis complete: ${storyAnalysis.beats.length} beats, genre: ${storyAnalysis.genre}`,
     });
 
-    // ─── Stage 3: Sound Design Plan — Pass 2 (0.30–0.35) ───
+    // ─── Stage 2.5: Sound Design Plan — Pass 2 (0.28–0.34) ───
     emit(jobId, {
       stage: 'analyzing_sound_design',
-      progress: 0.30,
+      progress: 0.28,
       message: 'Planning sound design...',
     });
 
     const soundDesignResult = await createSoundDesignPlan(
+      videoFileRef,
       storyAnalysis,
       storyAnalysis.durationSec,
       geminiApiKey,
       signal,
       userIntent,
-      config.includeSfx,
-      videoFileRef,
     );
     const soundDesignPlan = soundDesignResult.data;
 
@@ -204,142 +169,83 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     writeDebug('5_sound_design_raw.txt', soundDesignResult.rawResponse);
     writeDebug('6_sound_design_parsed.json', JSON.stringify(soundDesignPlan, null, 2));
 
-    const sfxCount = soundDesignPlan.sfx_segments?.length ?? 0;
-    const sfxMsg = sfxCount > 0 ? `, ${sfxCount} SFX` : '';
+    const ambientCount = soundDesignPlan.ambient_segments?.length ?? 0;
     emit(jobId, {
       stage: 'analyzing_sound_design',
-      progress: 0.35,
-      message: `Sound design plan: ${soundDesignPlan.music_segments.length} music segments${sfxMsg}, style: ${soundDesignPlan.global_music_style}`,
+      progress: 0.34,
+      message: `Sound design plan: ${soundDesignPlan.music_segments.length} music + ${ambientCount} ambient segments, style: ${soundDesignPlan.global_music_style}`,
     });
 
-    // ─── Stage 4: Generate music and SFX (0.35–0.95) ───
-    const hasSfx = config.includeSfx !== false && (soundDesignPlan.sfx_segments?.length ?? 0) > 0;
+    // ─── Stage 3: Action Spotting — Pass 2.5 (0.34–0.37) ───
+    let actionSpotting: ActionSpotting = { actions: [] };
+    if (config.includeSfx !== false) {
+      emit(jobId, {
+        stage: 'analyzing_sound_design',
+        progress: 0.34,
+        message: 'Spotting actions for sound effects...',
+      });
+
+      const actionSpottingResult = await spotActions(videoFileRef, storyAnalysis, soundDesignPlan, geminiApiKey, signal);
+      actionSpotting = actionSpottingResult.data;
+
+      checkAborted(signal);
+
+      writeDebug('7_prompt_action_spotting.txt', actionSpottingResult.promptSent);
+      writeDebug('8_action_spotting_raw.txt', actionSpottingResult.rawResponse);
+      writeDebug('9_action_spotting_parsed.json', JSON.stringify(actionSpotting, null, 2));
+
+      const actionLog = actionSpotting.actions
+        .map(a => `  ${a.startTime.toFixed(1)}s–${a.endTime.toFixed(1)}s  ${a.action}  →  "${a.sound}"`)
+        .join('\n');
+      writeDebug('9a_action_spotting_log.txt',
+        `[Pass 2.5] Action Spotting — ${actionSpotting.actions.length} actions spotted:\n${actionLog}`);
+
+      emit(jobId, {
+        stage: 'analyzing_sound_design',
+        progress: 0.37,
+        message: `Spotted ${actionSpotting.actions.length} sound-producing actions`,
+      });
+    }
+
+    // ─── Stage 4: Generate music, ambient, and SFX (0.37–0.95) ───
+    const hasSfx = config.includeSfx !== false && actionSpotting.actions.length > 0;
+    const hasAmbient = (soundDesignPlan.ambient_segments?.length ?? 0) > 0;
+    const ambientSegments = soundDesignPlan.ambient_segments ?? [];
+
     emit(jobId, {
       stage: 'generating',
-      progress: 0.35,
-      message: hasSfx ? 'Generating music and sound effects...' : 'Generating music...',
+      progress: 0.37,
+      message: hasSfx || hasAmbient ? 'Generating music, ambient, and sound effects...' : 'Generating music...',
     });
 
     const tracks: GeneratedTrack[] = [];
     const generationPromises: Promise<void>[] = [];
     const musicResults: TrackGenerationResult[] = [];
+    const ambientResults: TrackGenerationResult[] = [];
     const sfxResults: TrackGenerationResult[] = [];
 
     // Per-track progress tracking
-    const sfxCap = getSfxCap(storyAnalysis.durationSec);
-    const cappedSfxSegments = hasSfx ? trimSfxBySpacing(soundDesignPlan.sfx_segments, sfxCap) : [];
-    const sfxGenerationCount = cappedSfxSegments.filter(s => !s.skip).length;
+    const sfxSegments = hasSfx ? actionSpotting.actions : [];
+    const sfxGenerationCount = sfxSegments.length;
+    const ambientGenerationCount = ambientSegments.length;
     const multiSegmentMusicCount = soundDesignPlan.music_segments.filter(m => !m.skip).length;
-    let totalGenerations = multiSegmentMusicCount + sfxGenerationCount;
+    let totalGenerations = multiSegmentMusicCount + ambientGenerationCount + sfxGenerationCount;
     let completedGenerations = 0;
 
     function emitGenerationProgress() {
       completedGenerations++;
-      const genProgress = 0.35 + (completedGenerations / totalGenerations) * 0.60;
-      const sfxFailed = sfxResults.filter(r => r.status === 'failed').length;
+      const genProgress = 0.37 + (completedGenerations / totalGenerations) * 0.58;
+      const failedCount = sfxResults.filter(r => r.status === 'failed').length + ambientResults.filter(r => r.status === 'failed').length;
 
       let msg = `Generating audio... (${completedGenerations}/${totalGenerations})`;
-      if (sfxFailed > 0) {
-        msg += ` — ${sfxFailed} SFX failed`;
+      if (failedCount > 0) {
+        msg += ` — ${failedCount} failed`;
       }
       emit(jobId, { stage: 'generating', progress: Math.min(genProgress, 0.95), message: msg });
     }
 
-    // ── Music generation — multi-segment (composition plan disabled) ──
-    // Composition plan produces one continuous track, losing per-scene volume
-    // ducking and distinct musical character per segment. Re-enable when
-    // ElevenLabs supports per-section volume or we split the output post-gen.
-    const useCompPlan = false; // was: shouldUseCompositionPlan(soundDesignPlan.scenes);
-    let compositionPlanSucceeded = false;
-
-    if (useCompPlan) {
-      // Composition plan: one continuous track, sections mapped from Gemini segments
-      const nonSkipped = soundDesignPlan.music_segments.filter(s => !s.skip);
-      if (nonSkipped.length > 0) {
-        // Adjust progress total: 1 composition plan call instead of N individual calls
-        totalGenerations = 1 + sfxGenerationCount;
-
-        emit(jobId, {
-          stage: 'generating',
-          progress: 0.38,
-          message: 'Generating music via composition plan...',
-        });
-
-        const segments: MusicSegmentInput[] = nonSkipped.map(s => ({
-          prompt: s.prompt,
-          durationSec: s.endTime - s.startTime,
-          genre: s.genre,
-          style: s.style,
-        }));
-
-        const firstStart = nonSkipped[0].startTime;
-        const lastEnd = nonSkipped[nonSkipped.length - 1].endTime;
-        const totalDuration = lastEnd - firstStart;
-        const trackId = uuid();
-        const filePath = path.join(audioDir, `music_${trackId}.mp3`);
-
-        try {
-          const result = await generateMusicWithCompositionPlan(
-            segments,
-            soundDesignPlan.global_music_style,
-            soundDesignPlan.full_video_music_prompt,
-            totalDuration,
-            filePath,
-            elevenLabsApiKey,
-          );
-
-          const track: GeneratedTrack = {
-            id: trackId,
-            type: 'music',
-            filePath,
-            startTimeSec: firstStart,
-            actualDurationSec: result.actualDurationSec,
-            requestedDurationSec: totalDuration,
-            loop: result.loop,
-            label: `Music (composition): ${soundDesignPlan.global_music_style}`,
-            volume: getVolumeForTrack(firstStart, soundDesignPlan.scenes),
-            genre: nonSkipped[0].genre,
-            style: nonSkipped[0].style,
-          };
-          tracks.push(track);
-          musicResults.push({
-            planned: { type: 'music', prompt: 'composition plan', startTimeSec: firstStart, durationSec: totalDuration },
-            status: 'success',
-            track, retryCount: 0,
-          });
-
-          // Add skipped segments for display
-          for (const skipped of soundDesignPlan.music_segments.filter(s => s.skip)) {
-            const dur = skipped.endTime - skipped.startTime;
-            tracks.push({
-              id: uuid(),
-              type: 'music',
-              filePath: '',
-              startTimeSec: skipped.startTime,
-              actualDurationSec: dur,
-              requestedDurationSec: dur,
-              loop: false,
-              label: `Music (silent): ${skipped.genre}`,
-              volume: 0,
-              genre: skipped.genre,
-              style: skipped.style,
-              skip: true,
-            });
-          }
-
-          compositionPlanSucceeded = true;
-          emitGenerationProgress();
-        } catch (err: any) {
-          console.warn('Composition plan failed, falling back to multi-segment:', err.message);
-          writeDebug('7a_composition_plan_error.txt', err.message);
-          // Reset progress total back to multi-segment count
-          totalGenerations = multiSegmentMusicCount + sfxGenerationCount;
-        }
-      }
-    }
-
-    // ── Fallback: multi-segment music generation ──
-    if (!compositionPlanSucceeded) {
+    // ── Music generation — multi-segment ──
+    {
       for (let i = 0; i < soundDesignPlan.music_segments.length; i++) {
         const planned = soundDesignPlan.music_segments[i];
         const trackId = uuid();
@@ -365,19 +271,16 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
         }
 
         let enrichedPrompt = planned.prompt;
-        if (soundDesignPlan.global_music_style) {
+        // Only append global style if the segment prompt doesn't already mention it
+        if (soundDesignPlan.global_music_style && !planned.prompt.toLowerCase().includes(soundDesignPlan.global_music_style.toLowerCase())) {
           enrichedPrompt += `. Style: ${soundDesignPlan.global_music_style}`;
         }
-        if (soundDesignPlan.full_video_music_prompt) {
-          enrichedPrompt += `. Overall score: ${soundDesignPlan.full_video_music_prompt}`;
-        }
-        enrichedPrompt += '. Cinematic film score quality, dynamic range. Not stock music or generic corporate.';
 
         const plannedInfo = { type: 'music' as const, prompt: enrichedPrompt, startTimeSec: planned.startTime, durationSec: duration };
 
         generationPromises.push(
           generateMusic(enrichedPrompt, duration, filePath, elevenLabsApiKey)
-            .then(({ actualDurationSec, loop }) => {
+            .then(({ actualDurationSec, loop, retryCount }) => {
               const track: GeneratedTrack = {
                 id: trackId,
                 type: 'music',
@@ -390,12 +293,13 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 volume: getVolumeForTrack(planned.startTime, soundDesignPlan.scenes),
                 genre: planned.genre,
                 style: planned.style,
+                prompt: enrichedPrompt,
               };
               tracks.push(track);
               musicResults.push({
                 planned: plannedInfo,
                 status: 'success',
-                track, retryCount: 0,
+                track, retryCount,
               });
               emitGenerationProgress();
             })
@@ -412,20 +316,64 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       }
     }
 
-    // ── SFX generation promises ──
+    // ── Ambient generation ──
+    if (hasAmbient) {
+      for (let i = 0; i < ambientSegments.length; i++) {
+        const planned = ambientSegments[i];
+        const trackId = uuid();
+        const filePath = path.join(audioDir, `ambient_${trackId}.mp3`);
+        const duration = planned.endTime - planned.startTime;
+        const plannedInfo = { type: 'ambient' as const, prompt: planned.prompt, startTimeSec: planned.startTime, durationSec: duration };
+
+        generationPromises.push(
+          generateSoundEffectWithFallback(planned.prompt, duration, filePath, elevenLabsApiKey, 0.5)
+            .then(({ actualDurationSec, loop, retryCount, usedFallback, fallbackPrompt, error }) => {
+              const track: GeneratedTrack = {
+                id: trackId,
+                type: 'ambient',
+                filePath,
+                startTimeSec: planned.startTime,
+                actualDurationSec,
+                requestedDurationSec: duration,
+                loop: planned.loop || loop,
+                label: `Ambient: ${planned.prompt.slice(0, 50)}`,
+                volume: getAmbientVolume(planned.startTime, planned.loudness_class, soundDesignPlan.scenes),
+                prompt: planned.prompt,
+              };
+              tracks.push(track);
+              ambientResults.push({
+                planned: plannedInfo,
+                status: usedFallback ? 'fallback' : 'success',
+                track, fallbackPrompt, error, retryCount,
+              });
+              emitGenerationProgress();
+            })
+            .catch((err) => {
+              console.error(`Failed to generate ambient:`, err.message);
+              ambientResults.push({
+                planned: plannedInfo,
+                status: 'failed',
+                error: err.message, retryCount: 3,
+              });
+              emitGenerationProgress();
+            }),
+        );
+      }
+    }
+
+    // ── SFX (Foley) generation ──
     if (hasSfx) {
-      for (let i = 0; i < cappedSfxSegments.length; i++) {
-        const planned = cappedSfxSegments[i];
-        if (planned.skip) continue;
+      for (let i = 0; i < sfxSegments.length; i++) {
+        const planned = sfxSegments[i];
 
         const trackId = uuid();
         const filePath = path.join(audioDir, `sfx_${trackId}.mp3`);
         const duration = planned.endTime - planned.startTime;
-        const plannedInfo = { type: 'sfx' as const, prompt: planned.prompt, startTimeSec: planned.startTime, durationSec: duration };
+        const plannedInfo = { type: 'sfx' as const, prompt: planned.sound, startTimeSec: planned.startTime, durationSec: duration };
 
         generationPromises.push(
-          generateSoundEffectWithFallback(planned.prompt, duration, planned.category, filePath, elevenLabsApiKey)
-            .then(({ actualDurationSec, loop, usedFallback, fallbackPrompt, error }) => {
+          generateSoundEffectWithFallback(planned.sound, duration, filePath, elevenLabsApiKey, 0.6)
+            .then(({ actualDurationSec, loop, retryCount, usedFallback, fallbackPrompt, error }) => {
               const track: GeneratedTrack = {
                 id: trackId,
                 type: 'sfx',
@@ -434,15 +382,15 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 actualDurationSec,
                 requestedDurationSec: duration,
                 loop,
-                label: `SFX: ${planned.prompt.slice(0, 50)}`,
-                volume: planned.volume,
-                category: planned.category,
+                label: `SFX: ${planned.action.slice(0, 50)}`,
+                volume: getSfxVolume(planned.startTime, soundDesignPlan.scenes),
+                prompt: planned.sound,
               };
               tracks.push(track);
               sfxResults.push({
                 planned: plannedInfo,
                 status: usedFallback ? 'fallback' : 'success',
-                track, fallbackPrompt, error, retryCount: 0,
+                track, fallbackPrompt, error, retryCount,
               });
               emitGenerationProgress();
             })
@@ -475,20 +423,22 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
     const generationReport: GenerationReport = {
       music: { results: musicResults, stats: buildStats(musicResults) },
+      ambient: { results: ambientResults, stats: buildStats(ambientResults) },
       sfx: { results: sfxResults, stats: buildStats(sfxResults) },
     };
 
-    writeDebug('7_generation_results.json', JSON.stringify(generationReport, null, 2));
+    writeDebug('10_generation_results.json', JSON.stringify(generationReport, null, 2));
 
     const musicCount = tracks.filter(t => t.type === 'music' && !t.skip).length;
+    const ambientTrackCount = tracks.filter(t => t.type === 'ambient').length;
     const sfxTrackCount = tracks.filter(t => t.type === 'sfx').length;
-    const countMsg = sfxTrackCount > 0
-      ? `Generated ${musicCount} music + ${sfxTrackCount} SFX tracks`
-      : `Generated ${musicCount} audio tracks`;
+    const parts: string[] = [`${musicCount} music`];
+    if (ambientTrackCount > 0) parts.push(`${ambientTrackCount} ambient`);
+    if (sfxTrackCount > 0) parts.push(`${sfxTrackCount} SFX`);
     emit(jobId, {
       stage: 'generating',
       progress: 0.95,
-      message: countMsg,
+      message: `Generated ${parts.join(' + ')} tracks`,
     });
 
     // ─── Stage 5: Complete (1.00) ───
@@ -500,15 +450,22 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     };
 
     const finalMusicCount = tracks.filter(t => t.type === 'music' && !t.skip).length;
+    const finalAmbientCount = tracks.filter(t => t.type === 'ambient').length;
     const finalSfxCount = tracks.filter(t => t.type === 'sfx').length;
     const sfxStats = generationReport.sfx.stats;
-    let completeMsg = `Sound design complete! ${finalMusicCount} music`;
-    if (finalSfxCount > 0 || sfxStats.failed > 0) {
-      completeMsg += ` + ${finalSfxCount} SFX`;
-      if (sfxStats.fallback > 0) completeMsg += ` (${sfxStats.fallback} recovered via fallback)`;
-      if (sfxStats.failed > 0) completeMsg += ` (${sfxStats.failed} failed)`;
+    const ambientStats = generationReport.ambient.stats;
+    const completeParts: string[] = [`${finalMusicCount} music`];
+    if (finalAmbientCount > 0 || ambientStats.failed > 0) {
+      completeParts.push(`${finalAmbientCount} ambient`);
     }
-    completeMsg += ' tracks.';
+    if (finalSfxCount > 0 || sfxStats.failed > 0) {
+      completeParts.push(`${finalSfxCount} SFX`);
+    }
+    let completeMsg = `Sound design complete! ${completeParts.join(' + ')} tracks.`;
+    const allFallback = sfxStats.fallback + ambientStats.fallback;
+    const allFailed = sfxStats.failed + ambientStats.failed;
+    if (allFallback > 0) completeMsg += ` ${allFallback} recovered via fallback.`;
+    if (allFailed > 0) completeMsg += ` ${allFailed} failed.`;
     emit(jobId, {
       stage: 'complete',
       progress: 1.0,
