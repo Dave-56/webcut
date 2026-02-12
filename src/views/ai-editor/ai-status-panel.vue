@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue';
-import { NProgress, NButton, NIcon, NTag, NCollapse, NCollapseItem, NInput, NSlider } from 'naive-ui';
+import { computed, ref, watch } from 'vue';
+import { NProgress, NButton, NIcon, NTag, NCollapse, NCollapseItem, NInput } from 'naive-ui';
 import { Dismiss20Regular } from '@vicons/fluent';
 import AiIntentForm from './ai-intent-form.vue';
 import type { AiPhase, VideoMeta } from '../../hooks/ai-pipeline';
@@ -20,6 +20,8 @@ const props = defineProps<{
   result: SoundDesignResult | null;
   jobId: string | null;
   regeneratingTrackId: string | null;
+  extendingTrackId: string | null;
+  trackBaseDurations: Map<string, number>;
   selectedAiTrack: GeneratedTrack | null;
 }>();
 
@@ -33,7 +35,6 @@ const emit = defineEmits<{
   (e: 'adjustSpeed', trackId: string, rate: number): void;
   (e: 'extendTrack', trackId: string, durationSec: number): void;
   (e: 'regenerateTrack', trackId: string, prompt: string): void;
-  (e: 'adjustVolume', trackId: string, volume: number): void;
   (e: 'selectTrack', trackId: string): void;
 }>();
 
@@ -46,20 +47,11 @@ const panelView = computed<PanelView>(() => {
   return 'sfx-edit';
 });
 
-// Volume slider (local ref synced to selected track)
-const localVolume = ref(1);
-const isSyncingVolume = ref(false);
-
-watch(() => props.selectedAiTrack, (track) => {
-  if (!track) return;
-  isSyncingVolume.value = true;
-  localVolume.value = track.volume ?? 1;
-  nextTick(() => { isSyncingVolume.value = false; });
-}, { immediate: true });
-
-watch(localVolume, (v) => {
-  if (isSyncingVolume.value || !props.selectedAiTrack) return;
-  emit('adjustVolume', props.selectedAiTrack.id, v);
+// Base duration for extend multiplier (non-compounding)
+const selectedTrackBaseDuration = computed(() => {
+  if (!props.selectedAiTrack) return 0;
+  return props.trackBaseDurations.get(props.selectedAiTrack.id)
+    ?? props.selectedAiTrack.requestedDurationSec;
 });
 
 // Prompt editing
@@ -374,22 +366,10 @@ function trackTagType(track: GeneratedTrack) {
             <div class="track-card-section">
               <span class="track-card-section-label">Extend</span>
               <div class="track-card-buttons">
-                <n-button size="tiny" quaternary @click="emit('extendTrack', selectedAiTrack.id, selectedAiTrack.requestedDurationSec * 1.5)">1.5x</n-button>
-                <n-button size="tiny" quaternary @click="emit('extendTrack', selectedAiTrack.id, selectedAiTrack.requestedDurationSec * 2)">2x</n-button>
-                <n-button size="tiny" quaternary @click="emit('extendTrack', selectedAiTrack.id, selectedAiTrack.requestedDurationSec * 3)">3x</n-button>
+                <n-button size="tiny" quaternary :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 1.5)">1.5x</n-button>
+                <n-button size="tiny" quaternary :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 2)">2x</n-button>
+                <n-button size="tiny" quaternary :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 3)">3x</n-button>
               </div>
-            </div>
-
-            <div class="track-card-volume">
-              <span class="track-card-section-label">Volume</span>
-              <n-slider
-                v-model:value="localVolume"
-                :min="0"
-                :max="4"
-                :step="0.01"
-                :tooltip="true"
-                :format-tooltip="(v: number) => `${Math.round(v * 100)}%`"
-              />
             </div>
 
             <div class="track-card-section track-card-section--prompt">
@@ -432,18 +412,6 @@ function trackTagType(track: GeneratedTrack) {
               <span v-if="selectedAiTrack.style" class="track-card-meta-item">
                 <span class="track-card-section-label">Style:</span> {{ selectedAiTrack.style }}
               </span>
-            </div>
-
-            <div class="track-card-volume">
-              <span class="track-card-section-label">Volume</span>
-              <n-slider
-                v-model:value="localVolume"
-                :min="0"
-                :max="4"
-                :step="0.01"
-                :tooltip="true"
-                :format-tooltip="(v: number) => `${Math.round(v * 100)}%`"
-              />
             </div>
 
             <p class="music-regenerate-notice">
@@ -741,12 +709,6 @@ function trackTagType(track: GeneratedTrack) {
 .track-card-buttons {
   display: flex;
   gap: 4px;
-}
-
-.track-card-volume {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .music-regenerate-notice {

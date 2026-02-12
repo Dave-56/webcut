@@ -52,7 +52,7 @@ export interface AiPipelineState {
 }
 
 export function useAiPipeline() {
-  const { push, remove, syncSourceMeta, syncSourceTickInterceptor } = useWebCutPlayer();
+  const { push, remove } = useWebCutPlayer();
   const context = useWebCutContext();
   const { rails, sources } = context;
 
@@ -76,6 +76,9 @@ export function useAiPipeline() {
   // Track-to-source mapping for quick-edit operations
   const trackSourceMap = ref(new Map<string, string>());
   const regeneratingTrackId = ref<string | null>(null);
+  const extendingTrackId = ref<string | null>(null);
+  // Original requestedDurationSec per track — extend multipliers always use this as base
+  const trackBaseDurations = ref(new Map<string, number>());
 
   // Selected AI track — driven by timeline segment selection
   const selectedAiTrack = computed<GeneratedTrack | null>(() => {
@@ -145,6 +148,7 @@ export function useAiPipeline() {
     // Remove audio rails
     rails.value = rails.value.filter(r => r.type !== 'audio');
     trackSourceMap.value.clear();
+    trackBaseDurations.value.clear();
   }
 
   /**
@@ -193,6 +197,11 @@ export function useAiPipeline() {
       withRailId: railId,
     });
     trackSourceMap.value.set(track.id, sourceKey);
+
+    // Store base duration only on first push (not on extend re-push)
+    if (!trackBaseDurations.value.has(track.id)) {
+      trackBaseDurations.value.set(track.id, track.requestedDurationSec);
+    }
   }
 
   /**
@@ -377,41 +386,71 @@ export function useAiPipeline() {
   }
 
   /**
-   * Extend a track's duration on the timeline (pure frontend).
+   * Extend a track by removing the old source and re-pushing with loop enabled
+   * and the new duration. This is necessary because AudioClip's loop flag is
+   * set at construction time and cannot be toggled after.
    */
-  function extendTrack(trackId: string, newDurationSec: number) {
-    const sourceKey = trackSourceMap.value.get(trackId);
-    if (!sourceKey) return;
-    const source = sources.value.get(sourceKey);
-    if (!source) return;
+  async function extendTrack(trackId: string, newDurationSec: number) {
+    if (!result.value || !jobId.value) return;
+    if (extendingTrackId.value) return; // Guard against concurrent calls
 
-    const newDurationUs = newDurationSec * 1e6;
-    source.sprite.time.duration = newDurationUs;
+    const track = result.value.tracks.find(t => t.id === trackId);
+    if (!track) return;
 
-    // Update the corresponding rail segment end time
-    const rail = rails.value.find(r => r.id === source.railId);
-    if (rail) {
-      const seg = rail.segments.find(s => s.sourceKey === sourceKey);
-      if (seg) {
-        seg.end = seg.start + newDurationUs;
+    extendingTrackId.value = trackId;
+
+    // Capture old state for revert on failure
+    const oldRequestedDuration = track.requestedDurationSec;
+    const oldLoop = track.loop;
+
+    // Capture current playbackRate before removing the sprite
+    const oldSourceKey = trackSourceMap.value.get(trackId);
+    const oldSource = oldSourceKey ? sources.value.get(oldSourceKey) : null;
+    const savedPlaybackRate = oldSource?.sprite.time.playbackRate ?? 1;
+
+    // Update track metadata for re-push
+    track.requestedDurationSec = newDurationSec;
+    track.loop = true;
+
+    // Determine rail
+    let railId: string;
+    if (track.type === 'ambient') railId = ambientRailId;
+    else if (track.type === 'sfx') railId = sfxRailId;
+    else railId = musicRailId;
+
+    // Remove old source from timeline
+    if (oldSourceKey) {
+      remove(oldSourceKey);
+      trackSourceMap.value.delete(trackId);
+      // Clean orphaned segment from rail
+      const rail = rails.value.find(r => r.id === railId);
+      if (rail) {
+        rail.segments = rail.segments.filter(s => s.sourceKey !== oldSourceKey);
       }
     }
-  }
 
-  /**
-   * Adjust volume of a track (pure frontend, applies immediately).
-   */
-  function adjustTrackVolume(trackId: string, volume: number) {
-    const sourceKey = trackSourceMap.value.get(trackId);
-    if (!sourceKey) return;
-    const source = sources.value.get(sourceKey);
-    if (!source) return;
-    syncSourceMeta(source, { audio: { volume } });
-    syncSourceTickInterceptor(sourceKey);
-    // Keep GeneratedTrack in sync for UI display
-    if (result.value) {
-      const track = result.value.tracks.find(t => t.id === trackId);
-      if (track) track.volume = volume;
+    try {
+      await downloadAndPushAudio(jobId.value, track, railId);
+
+      // Restore playbackRate on new sprite
+      const newSourceKey = trackSourceMap.value.get(trackId);
+      if (newSourceKey) {
+        const newSource = sources.value.get(newSourceKey);
+        if (newSource) {
+          if (savedPlaybackRate !== 1) {
+            newSource.sprite.time.playbackRate = savedPlaybackRate;
+          }
+          if (newSource.segmentId) {
+            context.selectSegment(newSource.segmentId, newSource.railId);
+          }
+        }
+      }
+    } catch {
+      // Revert metadata — audio is gone but data model stays consistent
+      track.requestedDurationSec = oldRequestedDuration;
+      track.loop = oldLoop;
+    } finally {
+      extendingTrackId.value = null;
     }
   }
 
@@ -435,6 +474,11 @@ export function useAiPipeline() {
     const track = result.value.tracks.find(t => t.id === trackId);
     if (!track || track.type === 'music') return;
 
+    // Determine rail early so we can clean segments after remove
+    let railId: string;
+    if (track.type === 'ambient') railId = ambientRailId;
+    else railId = sfxRailId;
+
     regeneratingTrackId.value = trackId;
     try {
       const { actualDurationSec, loop } = await regenerateSfx({
@@ -444,11 +488,20 @@ export function useAiPipeline() {
         durationSec: track.requestedDurationSec,
       });
 
-      // Remove old source from timeline
+      // Capture current playbackRate before removing the sprite
       const oldSourceKey = trackSourceMap.value.get(trackId);
+      const oldSource = oldSourceKey ? sources.value.get(oldSourceKey) : null;
+      const savedPlaybackRate = oldSource?.sprite.time.playbackRate ?? 1;
+
+      // Remove old source from timeline
       if (oldSourceKey) {
         remove(oldSourceKey);
         trackSourceMap.value.delete(trackId);
+        // Clean orphaned segment from rail
+        const rail = rails.value.find(r => r.id === railId);
+        if (rail) {
+          rail.segments = rail.segments.filter(s => s.sourceKey !== oldSourceKey);
+        }
       }
 
       // Update track object in result
@@ -457,19 +510,19 @@ export function useAiPipeline() {
       track.prompt = newPrompt;
       track.label = `${track.type === 'sfx' ? 'SFX' : 'Ambient'}: ${newPrompt.slice(0, 50)}`;
 
-      // Download and push new audio to the correct rail
-      let railId: string;
-      if (track.type === 'ambient') railId = ambientRailId;
-      else railId = sfxRailId;
-
       await downloadAndPushAudio(jobId.value, track, railId);
 
-      // Re-select the new segment so the panel stays on this track's edit card
+      // Restore playbackRate on new sprite and re-select
       const newSourceKey = trackSourceMap.value.get(trackId);
       if (newSourceKey) {
         const newSource = sources.value.get(newSourceKey);
-        if (newSource?.segmentId) {
-          context.selectSegment(newSource.segmentId, newSource.railId);
+        if (newSource) {
+          if (savedPlaybackRate !== 1) {
+            newSource.sprite.time.playbackRate = savedPlaybackRate;
+          }
+          if (newSource.segmentId) {
+            context.selectSegment(newSource.segmentId, newSource.railId);
+          }
         }
       }
     } finally {
@@ -491,6 +544,8 @@ export function useAiPipeline() {
     videoMeta,
     lastOptions,
     regeneratingTrackId,
+    extendingTrackId,
+    trackBaseDurations,
     selectedAiTrack,
     loadVideo,
     startAnalysis,
@@ -498,7 +553,6 @@ export function useAiPipeline() {
     cancel,
     adjustTrackSpeed,
     extendTrack,
-    adjustTrackVolume,
     selectTrackOnTimeline,
     regenerateTrack,
   };

@@ -48,13 +48,14 @@ const {
   videoMeta,
   lastOptions,
   regeneratingTrackId,
+  extendingTrackId,
+  trackBaseDurations,
   selectedAiTrack,
   loadVideo,
   startAnalysis,
   cancel,
   adjustTrackSpeed,
   extendTrack,
-  adjustTrackVolume,
   selectTrackOnTimeline,
   regenerateTrack,
 } = useAiPipeline();
@@ -129,6 +130,8 @@ function handleBackToResults() {
                 :result="result"
                 :job-id="jobId"
                 :regenerating-track-id="regeneratingTrackId"
+                :extending-track-id="extendingTrackId"
+                :track-base-durations="trackBaseDurations"
                 :selected-ai-track="selectedAiTrack"
                 @cancel="cancel"
                 @submit="handleIntentSubmit"
@@ -139,7 +142,6 @@ function handleBackToResults() {
                 @adjust-speed="adjustTrackSpeed"
                 @extend-track="extendTrack"
                 @regenerate-track="regenerateTrack"
-                @adjust-volume="adjustTrackVolume"
                 @select-track="selectTrackOnTimeline"
               />
             </template>
