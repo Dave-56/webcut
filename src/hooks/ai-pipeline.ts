@@ -386,6 +386,38 @@ export function useAiPipeline() {
   }
 
   /**
+   * Shorten a track by truncating its segment end (pure frontend, no re-download).
+   */
+  function shortenTrack(trackId: string, newDurationSec: number) {
+    const track = result.value?.tracks.find(t => t.id === trackId);
+    if (!track) return;
+
+    const sourceKey = trackSourceMap.value.get(trackId);
+    if (!sourceKey) return;
+    const source = sources.value.get(sourceKey);
+    if (!source?.segmentId) return;
+
+    const rail = rails.value.find(r => r.id === source.railId);
+    if (!rail) return;
+    const segment = rail.segments.find(s => s.id === source.segmentId);
+    if (!segment) return;
+
+    // Guard: minimum 0.5s
+    const clampedSec = Math.max(newDurationSec, 0.5);
+    const newDurationUs = clampedSec * 1e6;
+
+    // Update segment and sprite
+    segment.end = segment.start + newDurationUs;
+    source.sprite.time.duration = newDurationUs;
+
+    // Update track metadata to stay in sync
+    track.requestedDurationSec = clampedSec;
+
+    // Recalculate total timeline duration
+    context.updateDuration();
+  }
+
+  /**
    * Extend a track by removing the old source and re-pushing with loop enabled
    * and the new duration. This is necessary because AudioClip's loop flag is
    * set at construction time and cannot be toggled after.
@@ -552,6 +584,7 @@ export function useAiPipeline() {
     resetToIntent,
     cancel,
     adjustTrackSpeed,
+    shortenTrack,
     extendTrack,
     selectTrackOnTimeline,
     regenerateTrack,

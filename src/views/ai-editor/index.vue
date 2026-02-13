@@ -57,6 +57,7 @@ const {
   startAnalysis,
   cancel,
   adjustTrackSpeed,
+  shortenTrack,
   extendTrack,
   selectTrackOnTimeline,
   regenerateTrack,
@@ -147,6 +148,7 @@ function handleBackToResults() {
                 @adjust-settings="handleAdjustSettings"
                 @back-to-results="handleBackToResults"
                 @adjust-speed="adjustTrackSpeed"
+                @shorten-track="shortenTrack"
                 @extend-track="extendTrack"
                 @regenerate-track="regenerateTrack"
                 @select-track="selectTrackOnTimeline"

@@ -1,7 +1,7 @@
 import { GoogleAIFileManager } from '@google/generative-ai/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
-import { StoryAnalysis, SoundDesignPlan, ActionSpotting, SoundDesignScene } from '../types.js';
+import { StoryAnalysis, SoundDesignPlan, ActionSpotting } from '../types.js';
 import { StoryAnalysisSchema, SoundDesignPlanSchema, ActionSpottingSchema } from '../schemas.js';
 
 export const MODEL = 'gemini-3-pro-preview';
@@ -259,20 +259,10 @@ export interface ActionSpottingResult {
   promptSent: string;
 }
 
-/**
- * Build a per-scene context block for action spotting, so the model knows
- * what music/dialogue is active and can calibrate loudness thresholds.
- */
-function buildSceneContext(scenes: SoundDesignScene[]): string {
-  return scenes.map(s =>
-    `  ${s.startTime}s–${s.endTime}s: music_level=${s.music_level}, dialogue=${s.dialogue}, mood="${s.mood}"`
-  ).join('\n');
-}
 
 export async function spotActions(
   videoFileRef: FileRef,
   storyAnalysis: StoryAnalysis,
-  soundDesignPlan: SoundDesignPlan,
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<ActionSpottingResult> {
@@ -289,7 +279,6 @@ export async function spotActions(
 
   const durationSec = storyAnalysis.durationSec;
   const genre = storyAnalysis.genre || 'general';
-  const sceneContext = buildSceneContext(soundDesignPlan.scenes);
 
   // Genre-adaptive Foley direction
   const isAnimation = /animation|cartoon|anime|animated/i.test(genre);
@@ -297,61 +286,53 @@ export async function spotActions(
     ? 'This is ANIMATION — use exaggerated, stylized, punchy sounds: cartoon impacts, whooshes, boings, slapstick hits. Realistic Foley is wrong for this genre.'
     : 'This is LIVE-ACTION — use realistic Foley: natural materials, acoustic spaces, physical textures. Stylized or cartoon sounds are wrong for this genre.';
 
-  const promptText = `You are a Foley artist spotting a video for sound design. Watch the entire video (${durationSec} seconds) carefully.
+  const promptText = `You are a sound designer identifying distinct sound EVENTS in a video. Watch the entire video (${durationSec} seconds) carefully.
 
 GENRE: ${genre}
 ${genreDirective}
 
-SCENE MIX CONTEXT (from the sound design plan — use this to decide what's audible):
-${sceneContext}
+Your job: find moments where a specific, identifiable sound occurs — then write a prompt describing that sound for an AI sound effects generator.
 
-Your job: identify visible physical actions that produce AUDIBLE sound IN THE CONTEXT OF THE MIX, then write a short prompt describing ONLY THE AUDIO. These prompts go directly to an AI sound effects generator.
+WHAT COUNTS AS A SOUND EVENT:
+A sound event is a discrete moment with a clear start — something happens and it makes a recognizable noise. Think: a door slamming, a phone notification chime, a glass breaking, a car horn, a gunshot, a switch clicking, an engine starting. These are sounds with a distinct sonic identity that an AI generator can reproduce well.
 
-MIX-AWARE SPOTTING:
-- When music_level="high": ONLY spot LOUD, DISTINCT actions — impacts, slams, crashes, explosions, gunshots. Subtle sounds will be buried.
-- When music_level="medium": Spot moderate-to-loud actions — doors, footsteps on hard surfaces, vehicle sounds, glass/metal interactions.
-- When music_level="low" or "off": Subtle Foley matters here — include softer sounds like paper rustling, keyboard typing, fabric during fast movement.
-- When dialogue=true: Only spot actions that are LOUD ENOUGH to hear over speech, or that occur in pauses between lines.
+WHAT IS NOT A SOUND EVENT:
+- Continuous activities: walking, dancing, crowd movement, traffic flowing — these are ambient soundscapes, not discrete events. They are handled by a separate ambient audio layer.
+- Actions that don't produce sound: hand gestures, facial expressions, looking at something, sitting, standing, head turns, emotional reactions.
+- Invented sounds: if you can't identify a specific real-world sound the action produces, do NOT spot it. Never invent or imagine sounds for silent actions.
+
+Spot up to 15 sound events maximum. Fewer, well-chosen events are better than padding to fill a quota. Prioritize sounds that add cinematic impact, texture, or emotional weight.
+
+Don't worry about what other audio layers (music, dialogue, ambience) exist — volume balancing is handled separately.
 
 Return JSON:
 {
   "actions": [
     {
-      "startTime": <seconds with decimals — exact frame the action begins>,
+      "startTime": <seconds with decimals — exact frame the sound begins>,
       "endTime": <seconds with decimals — when it ends, min 2s after startTime>,
       "action": "<what is physically happening — verb + object>",
-      "sound": "<SOUND-ONLY description for AI generation, min 50 chars, max 150 chars. Describe the audio: material, texture, acoustic space. NO character names, NO emotions, NO visual descriptions.>"
+      "sound": "<prompt for AI sound generation, 50-150 chars. Describe ONLY the sound itself: what it sounds like, its tonal quality, its character. Must be grounded in what's visible — do NOT add sonic details you can't see evidence for.>"
     }
   ]
 }
 
-CRITICAL — the "sound" field must describe WHAT YOU HEAR, not what you see:
-  GOOD: action="Man walks into club", sound="Leather shoes on polished floor, 4 steps, muffled bass through walls"
-  GOOD: action="Door opens", sound="Heavy metal door swinging open, hinges creaking, brief rush of street noise"
-  GOOD: action="Crowd dancing", sound="Crowd murmur and shuffling feet on wooden floor, loud indoor space"
-  BAD:  action="Man walks into club", sound="Man walking confidently through a club entrance"
-  BAD:  action="Woman gestures", sound="Woman sitting on a stool gesturing with her hands"
+CRITICAL — the "sound" field describes the SOUND, not the action. And it must match what's actually in the video:
+  GOOD: action="Phone displays notification", sound="Bright electronic chime, positive digital alert tone, short upward sweeping notification sound"
+  GOOD: action="Door slams shut", sound="Heavy wooden door slamming into frame, sharp low-frequency impact, brief rattle of door hardware"
+  GOOD: action="Glass dropped on floor", sound="Thin glass shattering on hard tile, bright splintering crack followed by scattered tinkling fragments"
+  GOOD: action="Car engine starts", sound="V8 engine turning over and catching, deep mechanical rumble building to a steady idle"
+  BAD:  action="Man walks through entrance", sound="Footsteps on floor" (too generic — walking is continuous activity, not a discrete event)
+  BAD:  action="Crowd dances in club", sound="Crowd murmur and shuffling feet on wooden floor" (this is ambience, not SFX)
+  BAD:  action="Woman gestures with hands", sound="Air swooshes matching hand movements" (hands moving in air don't produce sound — this is invented)
+  BAD:  action="Fingers tap on phone", sound="Loud crisp digital clicks, exaggerated UI feedback sounds" (hallucinated details — you can't see what sounds the phone makes from the video)
 
-The "sound" field should read like a Foley recording cue: material + action + acoustic environment.
-Minimum 50 characters, maximum 150. Be specific about surfaces, materials, and space.
-
-HARD EXCLUSIONS — NEVER spot these:
-- Fabric rustling from normal movement (walking, sitting, standing)
-- Faint jewelry movement, watch ticking, ring clinking
-- Phone screen scrolling, finger swiping
-- Breathing, sighing, swallowing (unless dramatic/exaggerated)
-- Hair movement, blinking, subtle lip movement
-- Hand gestures, facial expressions, head turns, eye movements
-- Someone sitting still, standing, looking at something
-- Emotional reactions with no physical sound component
-- Camera movements or transitions
-- Any action whose sound would be inaudible under the current scene's music_level
+The AI sound generator excels at short, discrete, identifiable sounds — impacts, chimes, mechanical clicks, alarms, crashes, whooshes. Write prompts that play to this strength.
 
 Rules:
 - Use precise fractional timestamps (e.g. 18.3, not 18)
 - Minimum duration: 2 seconds. Maximum: 22 seconds.
 - Actions can overlap in time.
-- Fewer, better-spotted actions are preferable to many inaudible ones.
 - Return ONLY the JSON object, no markdown code blocks.`;
 
   const parts: any[] = [videoFileRef, { text: promptText }];

@@ -36,6 +36,7 @@ const emit = defineEmits<{
   (e: 'adjustSettings'): void;
   (e: 'backToResults'): void;
   (e: 'adjustSpeed', trackId: string, rate: number): void;
+  (e: 'shortenTrack', trackId: string, durationSec: number): void;
   (e: 'extendTrack', trackId: string, durationSec: number): void;
   (e: 'regenerateTrack', trackId: string, prompt: string): void;
   (e: 'selectTrack', trackId: string): void;
@@ -352,6 +353,15 @@ function trackBadgeVariant(track: GeneratedTrack) {
                 <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 0.75)">0.75x</Button>
                 <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 1)">1x</Button>
                 <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 1.25)">1.25x</Button>
+              </div>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-muted-foreground">Shorten</span>
+              <div class="flex gap-1">
+                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('shortenTrack', selectedAiTrack.id, selectedTrackBaseDuration * 0.75)">0.75x</Button>
+                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('shortenTrack', selectedAiTrack.id, selectedTrackBaseDuration * 0.5)">0.5x</Button>
+                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('shortenTrack', selectedAiTrack.id, selectedTrackBaseDuration * 0.25)">0.25x</Button>
               </div>
             </div>
 

@@ -185,7 +185,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
         message: 'Spotting actions for sound effects...',
       });
 
-      const actionSpottingResult = await spotActions(videoFileRef, storyAnalysis, soundDesignPlan, geminiApiKey, signal);
+      const actionSpottingResult = await spotActions(videoFileRef, storyAnalysis, geminiApiKey, signal);
       actionSpotting = actionSpottingResult.data;
 
       checkAborted(signal);
