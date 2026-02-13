@@ -346,11 +346,6 @@ function trackBadgeVariant(track: GeneratedTrack) {
               <Badge v-if="selectedAiTrack.loop" variant="info" class="text-[10px] px-1 py-0">loop</Badge>
             </div>
 
-            <div class="flex flex-col gap-1" v-if="selectedAiTrack.prompt">
-              <span class="text-[11px] font-medium text-muted-foreground">Original prompt</span>
-              <p class="m-0 text-xs text-foreground/80 leading-relaxed">{{ selectedAiTrack.prompt }}</p>
-            </div>
-
             <div class="flex flex-col gap-1">
               <span class="text-[11px] font-medium text-muted-foreground">Speed</span>
               <div class="flex gap-1">

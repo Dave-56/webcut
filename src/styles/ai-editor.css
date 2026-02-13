@@ -9,6 +9,15 @@
 
 .ai-editor {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+.ai-editor *,
+.ai-editor *::before,
+.ai-editor *::after {
+  font-family: inherit;
+}
+
+.ai-editor {
   --background: var(--webcut-background-color, oklch(1 0 0));
   --foreground: var(--webcut-text-primary, oklch(0.145 0 0));
   --card: var(--webcut-panel-bg, oklch(0.985 0 0));
