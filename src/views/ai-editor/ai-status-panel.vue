@@ -32,7 +32,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'cancel'): void;
   (e: 'submit', options: AnalysisOptions): void;
-  (e: 'skip'): void;
   (e: 'regenerate'): void;
   (e: 'adjustSettings'): void;
   (e: 'backToResults'): void;
@@ -172,7 +171,6 @@ function trackBadgeVariant(track: GeneratedTrack) {
       v-if="phase === 'intent' && videoMeta"
       :video-meta="videoMeta"
       @submit="emit('submit', $event)"
-      @skip="emit('skip')"
     />
 
     <!-- Processing Phase -->
@@ -231,8 +229,7 @@ function trackBadgeVariant(track: GeneratedTrack) {
           :video-meta="videoMeta"
           :initial-options="lastOptions"
           @submit="emit('submit', $event)"
-          @skip="emit('skip')"
-        />
+            />
       </template>
 
       <!-- Normal results view -->

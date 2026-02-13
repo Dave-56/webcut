@@ -80,9 +80,6 @@ function handleIntentSubmit(options: AnalysisOptions) {
   showSettings.value = false;
   startAnalysis(options);
 }
-function handleIntentSkip() {
-  startAnalysis();
-}
 function handleRegenerate() {
   showSettings.value = false;
   startAnalysis(lastOptions.value);
@@ -146,7 +143,6 @@ function handleBackToResults() {
                 :selected-ai-track="selectedAiTrack"
                 @cancel="cancel"
                 @submit="handleIntentSubmit"
-                @skip="handleIntentSkip"
                 @regenerate="handleRegenerate"
                 @adjust-settings="handleAdjustSettings"
                 @back-to-results="handleBackToResults"

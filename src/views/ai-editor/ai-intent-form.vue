@@ -15,7 +15,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'submit', options: AnalysisOptions): void;
-  (e: 'skip'): void;
 }>();
 
 const prompt = ref(
@@ -70,8 +69,8 @@ function handleSubmit() {
       <div class="flex items-start gap-2">
         <Checkbox
           id="use-existing-audio"
-          :checked="useExistingAudio"
-          @update:checked="(v: boolean) => useExistingAudio = v"
+          :model-value="useExistingAudio"
+          @update:model-value="(v) => useExistingAudio = v === true"
         />
         <div class="space-y-0.5">
           <Label for="use-existing-audio" class="text-xs">Use existing audio as reference</Label>
@@ -82,8 +81,8 @@ function handleSubmit() {
       <div class="flex items-start gap-2">
         <Checkbox
           id="include-sfx"
-          :checked="includeSfx"
-          @update:checked="(v: boolean) => includeSfx = v"
+          :model-value="includeSfx"
+          @update:model-value="(v) => includeSfx = v === true"
         />
         <div class="space-y-0.5">
           <Label for="include-sfx" class="text-xs">Include sound effects</Label>
@@ -92,16 +91,8 @@ function handleSubmit() {
       </div>
     </div>
 
-    <div class="flex flex-col items-center gap-2 mt-1">
-      <Button class="w-full" @click="handleSubmit">
-        Generate Sound Design
-      </Button>
-      <button
-        class="bg-transparent border-none py-1 px-0 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-        @click="emit('skip')"
-      >
-        Skip, use smart defaults
-      </button>
-    </div>
+    <Button class="w-full mt-1" @click="handleSubmit">
+      Generate Sound Design
+    </Button>
   </div>
 </template>
