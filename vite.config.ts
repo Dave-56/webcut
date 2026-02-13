@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => ({
       exclude: [
         'src/**/*.test.ts', 'src/**/*.spec.ts', 'src/**/*.md',
         'src/webcomponents.ts',
+        'src/views/ai-editor/ui/**/*',
+        'src/views/ai-editor/lib/**/*',
       ],
     }) : undefined,
   ].filter(Boolean),

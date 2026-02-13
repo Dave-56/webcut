@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import '../../styles/ai-editor.css';
 import { NSplit } from 'naive-ui';
 import WebCutProvider from '../provider/index.vue';
 import WebCutPlayerScreen from '../player/screen.vue';
 import WebCutPlayerButton from '../player/button.vue';
 import WebCutManager from '../manager/index.vue';
-import ExportButton from '../export-button/index.vue';
 import WebCutToast from '../toast/index.vue';
 import UploadZone from './upload-zone.vue';
 import AiStatusPanel from './ai-status-panel.vue';
+import AiExportButton from './ai-export-button.vue';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resizable';
 import {
   useWebCutContext,
   useWebCutPlayer,
@@ -29,7 +31,7 @@ const props = defineProps<{
 
 useWebCutContext(() => props.projectId ? { id: props.projectId } : undefined);
 useWebCutThemeColors(() => props.colors);
-useWebCutDarkMode(darkMode);
+const { isDarkMode } = useWebCutDarkMode(darkMode);
 useWebCutLocale(language);
 
 const { resize } = useWebCutPlayer();
@@ -67,6 +69,10 @@ function handleResized() {
   manager.value?.resizeHeight();
 }
 
+function handleHorizontalLayout(_sizes: number[]) {
+  resize();
+}
+
 function handleUpload(file: File) {
   loadVideo(file);
 }
@@ -91,31 +97,36 @@ function handleBackToResults() {
 
 <template>
   <WebCutProvider>
-    <div class="ai-editor">
-      <div class="ai-editor-top-bar">
-        <span class="ai-editor-title">AI Sound Design</span>
-        <span style="flex: 1;"></span>
-        <ExportButton />
+    <div class="ai-editor relative h-full w-full flex flex-col" :class="{ dark: isDarkMode }">
+      <!-- Top bar -->
+      <div class="flex items-center px-3 py-1.5 border-b border-border gap-2">
+        <span class="text-sm font-semibold text-foreground">AI Sound Design</span>
+        <span class="flex-1"></span>
+        <AiExportButton />
       </div>
+
+      <!-- Vertical split: KEEP NSplit for pixel-based min -->
       <n-split direction="vertical" :default-size="0.75" min="300px" :max="0.85" @update:size="handleResized">
         <template #1>
-          <n-split :default-size="0.65" :min="0.4" :max="0.8" @update:size="resize">
-            <template #1>
-              <div class="ai-editor-main">
+          <!-- Horizontal split: USE Resizable -->
+          <ResizablePanelGroup direction="horizontal" @layout="handleHorizontalLayout">
+            <ResizablePanel :default-size="65" :min-size="40" :max-size="80">
+              <div class="h-full flex flex-col">
                 <UploadZone
                   v-show="!videoLoaded"
                   :disabled="isProcessing"
                   @upload="handleUpload"
                 />
-                <div v-show="videoLoaded" class="ai-editor-player-container">
-                  <WebCutPlayerScreen class="ai-editor-player" />
+                <div v-show="videoLoaded" class="flex-1 min-h-0 overflow-hidden w-[calc(100%-32px)] mx-4 mt-4 mb-2 flex items-center justify-center">
+                  <WebCutPlayerScreen class="h-full w-full" />
                 </div>
-                <div v-show="videoLoaded" class="ai-editor-player-buttons">
+                <div v-show="videoLoaded" class="h-6 w-[calc(100%-32px)] mx-4 mb-4 mt-0 flex items-center justify-center relative">
                   <WebCutPlayerButton />
                 </div>
               </div>
-            </template>
-            <template #2>
+            </ResizablePanel>
+            <ResizableHandle class="w-[2px] bg-border transition-colors hover:bg-primary/50 data-[resize-handle-active]:bg-primary" />
+            <ResizablePanel :default-size="35">
               <AiStatusPanel
                 :phase="phase"
                 :video-meta="videoMeta"
@@ -144,96 +155,19 @@ function handleBackToResults() {
                 @regenerate-track="regenerateTrack"
                 @select-track="selectTrackOnTimeline"
               />
-            </template>
-            <template #resize-trigger>
-              <div class="ai-editor-split-trigger--vertical"></div>
-            </template>
-          </n-split>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </template>
         <template #2>
-          <div class="ai-editor-timeline">
+          <div class="h-full">
             <WebCutManager ref="manager" />
           </div>
         </template>
         <template #resize-trigger>
-          <div class="ai-editor-split-trigger--horizontal"></div>
+          <div class="h-[2px] w-full bg-border"></div>
         </template>
       </n-split>
     </div>
     <WebCutToast />
   </WebCutProvider>
 </template>
-
-<style scoped>
-.ai-editor {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.ai-editor-top-bar {
-  display: flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--webcut-line-color);
-  gap: 8px;
-}
-
-.ai-editor-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--webcut-text-primary);
-}
-
-.ai-editor-main {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.ai-editor-player-container {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  width: calc(100% - 32px);
-  margin: 16px;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.ai-editor-player {
-  height: 100%;
-  width: 100%;
-}
-
-.ai-editor-player-buttons {
-  height: 24px;
-  width: calc(100% - 32px);
-  margin: 8px 16px;
-  margin-top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.ai-editor-timeline {
-  height: 100%;
-}
-
-.ai-editor-split-trigger--horizontal {
-  width: 100%;
-  height: 2px;
-  background-color: var(--webcut-line-color);
-}
-
-.ai-editor-split-trigger--vertical {
-  height: 100%;
-  width: 2px;
-  background-color: var(--webcut-line-color);
-}
-</style>

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { NIcon } from 'naive-ui';
 import { ArrowUpload20Filled } from '@vicons/fluent';
 
 const emit = defineEmits<{
@@ -60,10 +59,14 @@ function processFile(file: File) {
 </script>
 
 <template>
-  <div class="upload-zone-wrapper">
+  <div class="flex flex-col gap-4 h-full p-4">
     <div
-      class="upload-zone"
-      :class="{ 'drag-over': isDragOver, disabled }"
+      class="flex-1 flex items-center justify-center border-2 border-dashed border-border rounded-xl cursor-pointer transition-all duration-200 min-h-[200px]"
+      :class="{
+        'border-primary bg-primary/10': isDragOver,
+        'hover:border-primary hover:bg-primary/5': !disabled,
+        'opacity-50 cursor-not-allowed': disabled,
+      }"
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
       @drop="handleDrop"
@@ -73,83 +76,15 @@ function processFile(file: File) {
         ref="fileInput"
         type="file"
         accept="video/*"
-        style="display: none"
+        class="hidden"
         @change="handleFileChange"
       />
-      <div class="upload-zone-content">
-        <n-icon :size="48" color="var(--webcut-text-primary)" style="opacity: 0.4">
-          <ArrowUpload20Filled />
-        </n-icon>
-        <p class="upload-zone-title">Drop a video here</p>
-        <p class="upload-zone-subtitle">or click to browse</p>
-        <p class="upload-zone-hint">MP4, MOV, WebM, AVI (max 500MB)</p>
+      <div class="text-center flex flex-col items-center gap-2">
+        <ArrowUpload20Filled class="h-12 w-12 text-foreground opacity-40" />
+        <p class="text-base font-semibold m-0 text-foreground">Drop a video here</p>
+        <p class="text-[13px] m-0 text-muted-foreground">or click to browse</p>
+        <p class="text-[11px] m-0 text-muted-foreground/60">MP4, MOV, WebM, AVI (max 500MB)</p>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.upload-zone-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-  padding: 16px;
-}
-
-.upload-zone {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px dashed var(--webcut-line-color);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-height: 200px;
-}
-
-.upload-zone:hover:not(.disabled) {
-  border-color: var(--webcut-primary-color);
-  background: rgba(var(--webcut-primary-color-rgb, 99, 102, 241), 0.05);
-}
-
-.upload-zone.drag-over {
-  border-color: var(--webcut-primary-color);
-  background: rgba(var(--webcut-primary-color-rgb, 99, 102, 241), 0.1);
-}
-
-.upload-zone.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.upload-zone-content {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.upload-zone-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--webcut-text-primary);
-}
-
-.upload-zone-subtitle {
-  font-size: 13px;
-  margin: 0;
-  opacity: 0.6;
-  color: var(--webcut-text-primary);
-}
-
-.upload-zone-hint {
-  font-size: 11px;
-  margin: 0;
-  opacity: 0.4;
-  color: var(--webcut-text-primary);
-}
-</style>

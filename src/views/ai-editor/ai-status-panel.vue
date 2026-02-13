@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NProgress, NButton, NIcon, NTag, NCollapse, NCollapseItem, NInput } from 'naive-ui';
-import { Dismiss20Regular } from '@vicons/fluent';
+import { Dismiss20Regular, ChevronRight20Regular } from '@vicons/fluent';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { Progress } from './ui/progress';
+import { Textarea } from './ui/textarea';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import AiIntentForm from './ai-intent-form.vue';
 import type { AiPhase, VideoMeta } from '../../hooks/ai-pipeline';
 import type { AnalysisOptions, JobProgress, SoundDesignResult, GeneratedTrack } from '../../services/ai-client';
@@ -79,9 +83,9 @@ const stageLabel = computed(() => {
   return labels[props.stage] || props.stage;
 });
 
-const stageType = computed<'success' | 'error' | 'warning' | 'info' | 'default'>(() => {
+const stageVariant = computed<'success' | 'destructive' | 'warning' | 'info' | 'secondary'>(() => {
   if (props.stage === 'complete') return 'success';
-  if (props.stage === 'error') return 'error';
+  if (props.stage === 'error') return 'destructive';
   if (props.stage === 'cancelled') return 'warning';
   return 'info';
 });
@@ -133,15 +137,15 @@ const generationHealth = computed(() => {
 
 const hasOptionsEcho = computed(() => {
   const o = props.lastOptions;
-  return o.creativeDirection || o.useExistingAudio;
+  return o.userIntent || o.useExistingAudio;
 });
 
 function formatTimeRange(startSec: number, durationSec: number): string {
   return `${startSec.toFixed(1)}s - ${(startSec + durationSec).toFixed(1)}s`;
 }
 
-function trackTagType(track: GeneratedTrack) {
-  if (track.skip) return 'default' as const;
+function trackBadgeVariant(track: GeneratedTrack) {
+  if (track.skip) return 'secondary' as const;
   if (track.type === 'sfx') return 'info' as const;
   if (track.type === 'ambient') return 'warning' as const;
   return 'success' as const;
@@ -149,18 +153,18 @@ function trackTagType(track: GeneratedTrack) {
 </script>
 
 <template>
-  <div class="ai-status-panel">
-    <div class="panel-header">
-      <h3 class="panel-title">AI Sound Design</h3>
-      <n-tag :type="stageType" size="small" v-if="stage">
+  <div class="h-full overflow-y-auto p-4 flex flex-col gap-4 bg-card/50 border-l border-border">
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="m-0 text-sm font-semibold text-foreground">AI Sound Design</h3>
+      <Badge :variant="stageVariant" v-if="stage">
         {{ stageLabel }}
-      </n-tag>
+      </Badge>
     </div>
 
     <!-- Upload Phase: Empty State -->
-    <div class="empty-state" v-if="phase === 'upload'">
-      <p>Upload a video to start AI sound design.</p>
-      <p class="empty-hint">The AI will analyze your video and generate background music.</p>
+    <div class="text-center py-8 px-4" v-if="phase === 'upload'">
+      <p class="m-0 mb-2 text-[13px] text-muted-foreground">Upload a video to start AI sound design.</p>
+      <p class="m-0 text-[11px] text-muted-foreground/70">The AI will analyze your video and generate background music.</p>
     </div>
 
     <!-- Intent Phase: Form -->
@@ -172,59 +176,55 @@ function trackTagType(track: GeneratedTrack) {
     />
 
     <!-- Processing Phase -->
-    <div class="progress-section" v-if="phase === 'processing'">
-      <n-progress
-        type="line"
-        :percentage="progressPercent"
-        :status="'default'"
-        :indicator-placement="'inside'"
-        :height="20"
-        :border-radius="4"
+    <div class="flex flex-col gap-2" v-if="phase === 'processing'">
+      <Progress
+        :model-value="progressPercent"
+        show-percentage
       />
-      <p class="progress-message">{{ message }}</p>
+      <p class="m-0 text-xs text-muted-foreground">{{ message }}</p>
 
-      <n-button
-        size="small"
-        quaternary
-        type="error"
+      <Button
+        variant="ghost"
+        size="sm"
+        class="text-destructive hover:text-destructive w-fit"
         @click="emit('cancel')"
       >
-        <template #icon>
-          <n-icon><Dismiss20Regular /></n-icon>
-        </template>
+        <Dismiss20Regular class="h-4 w-4 mr-1" />
         Cancel
-      </n-button>
+      </Button>
 
       <!-- Echo of user options -->
-      <div class="options-echo" v-if="hasOptionsEcho">
-        <p class="options-echo-title">Your settings</p>
-        <p v-if="lastOptions.creativeDirection" class="options-echo-item">
-          <span class="options-echo-label">Direction:</span> {{ lastOptions.creativeDirection }}
+      <div class="p-2.5 px-3 bg-muted/50 rounded-md flex flex-col gap-1" v-if="hasOptionsEcho">
+        <p class="m-0 text-[11px] font-semibold text-muted-foreground">Your settings</p>
+        <p v-if="lastOptions.userIntent" class="m-0 text-[11px] text-muted-foreground line-clamp-2">
+          {{ lastOptions.userIntent }}
         </p>
-        <p v-if="lastOptions.useExistingAudio" class="options-echo-item">
-          <span class="options-echo-label">Audio ref:</span> Using existing audio
+        <p v-if="lastOptions.useExistingAudio" class="m-0 text-[11px] text-muted-foreground">
+          <span class="font-medium">Audio ref:</span> Using existing audio
         </p>
       </div>
     </div>
 
     <!-- Error Phase -->
-    <div class="error-section" v-if="phase === 'error'">
-      <p class="error-message">{{ error }}</p>
-      <n-button
-        size="small"
-        type="primary"
+    <div class="p-2.5 px-3 bg-destructive/10 rounded-md border border-destructive/20" v-if="phase === 'error'">
+      <p class="m-0 text-xs text-destructive">{{ error }}</p>
+      <Button
+        size="sm"
+        class="mt-2"
         @click="emit('adjustSettings')"
-        style="margin-top: 8px;"
       >
         Try Again
-      </n-button>
+      </Button>
     </div>
 
     <!-- Complete Phase -->
     <template v-if="phase === 'complete'">
       <!-- Settings overlay (shown when user clicks Adjust Settings) -->
       <template v-if="showSettings && videoMeta">
-        <button class="back-to-results-btn" @click="emit('backToResults')">
+        <button
+          class="bg-transparent border-none py-1 px-0 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors text-left"
+          @click="emit('backToResults')"
+        >
           &larr; Back to Results
         </button>
         <AiIntentForm
@@ -237,570 +237,218 @@ function trackTagType(track: GeneratedTrack) {
 
       <!-- Normal results view -->
       <template v-else>
-        <div class="progress-section">
-          <n-progress
-            type="line"
-            :percentage="100"
-            status="success"
-            :indicator-placement="'inside'"
-            :height="20"
-            :border-radius="4"
+        <div class="flex flex-col gap-2">
+          <Progress
+            :model-value="100"
+            show-percentage
           />
-          <p class="progress-message">{{ message }}</p>
+          <p class="m-0 text-xs text-muted-foreground">{{ message }}</p>
         </div>
 
-        <div class="panel-view" v-if="result">
+        <div class="flex-1 flex flex-col gap-3" v-if="result">
 
-          <!-- ═══ SUMMARY VIEW ═══ -->
+          <!-- SUMMARY VIEW -->
           <template v-if="panelView === 'summary'">
-            <p class="summary-hint">Select a track on the timeline to edit</p>
+            <p class="m-0 text-xs text-muted-foreground italic">Select a track on the timeline to edit</p>
 
-            <div class="summary-counts" v-if="trackSummary">
-              <n-tag type="success" size="small">{{ trackSummary.music }} music</n-tag>
-              <n-tag v-if="trackSummary.ambient > 0" type="warning" size="small">{{ trackSummary.ambient }} ambient</n-tag>
-              <n-tag v-if="trackSummary.sfx > 0" type="info" size="small">{{ trackSummary.sfx }} SFX</n-tag>
-              <n-tag v-if="trackSummary.skipped > 0" type="default" size="small">{{ trackSummary.skipped }} silent</n-tag>
+            <div class="flex flex-wrap gap-1.5" v-if="trackSummary">
+              <Badge variant="success">{{ trackSummary.music }} music</Badge>
+              <Badge v-if="trackSummary.ambient > 0" variant="warning">{{ trackSummary.ambient }} ambient</Badge>
+              <Badge v-if="trackSummary.sfx > 0" variant="info">{{ trackSummary.sfx }} SFX</Badge>
+              <Badge v-if="trackSummary.skipped > 0" variant="secondary">{{ trackSummary.skipped }} silent</Badge>
             </div>
 
-            <div class="summary-health" v-if="generationHealth && (generationHealth.totalFallback > 0 || generationHealth.totalFailed > 0)">
-              <p v-if="generationHealth.totalFallback > 0" class="summary-health-item summary-health-item--warn">
+            <div class="flex flex-col gap-0.5" v-if="generationHealth && (generationHealth.totalFallback > 0 || generationHealth.totalFailed > 0)">
+              <p v-if="generationHealth.totalFallback > 0" class="m-0 text-[11px] text-muted-foreground">
                 {{ generationHealth.totalFallback }} track(s) recovered via fallback
               </p>
-              <p v-if="generationHealth.totalFailed > 0" class="summary-health-item summary-health-item--error">
+              <p v-if="generationHealth.totalFailed > 0" class="m-0 text-[11px] text-destructive">
                 {{ generationHealth.totalFailed }} track(s) failed to generate
               </p>
             </div>
 
-            <div class="summary-track-list">
+            <div class="flex flex-col gap-0.5">
               <div
                 v-for="track in result.tracks"
                 :key="track.id"
-                class="summary-track-item"
+                class="flex items-center gap-2 py-1 px-1.5 -mx-1.5 text-xs rounded-md transition-colors"
+                :class="{ 'cursor-pointer hover:bg-accent': !track.skip }"
                 @click="!track.skip && emit('selectTrack', track.id)"
-                :class="{ 'summary-track-item--clickable': !track.skip }"
               >
-                <n-tag :type="trackTagType(track)" size="small">
+                <Badge :variant="trackBadgeVariant(track)">
                   {{ track.skip ? 'silent' : track.type }}
-                </n-tag>
-                <span class="track-label">{{ track.label }}</span>
-                <span class="track-duration">{{ track.actualDurationSec.toFixed(1) }}s</span>
-                <n-tag v-if="track.loop" size="tiny" type="info">loop</n-tag>
+                </Badge>
+                <span class="flex-1 truncate text-foreground">{{ track.label }}</span>
+                <span class="text-muted-foreground text-[11px]">{{ track.actualDurationSec.toFixed(1) }}s</span>
+                <Badge v-if="track.loop" variant="info" class="text-[10px] px-1 py-0">loop</Badge>
               </div>
             </div>
 
             <!-- Generation Details collapsed -->
-            <n-collapse class="generation-details-collapse">
-              <n-collapse-item title="Generation Details" name="details">
-                <div class="result-grid" v-if="storySummary">
-                  <div class="result-item">
-                    <span class="result-label">Genre</span>
-                    <span class="result-value">{{ storySummary.genre }}</span>
+            <Collapsible class="mt-1">
+              <CollapsibleTrigger class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer bg-transparent border-none p-0">
+                <ChevronRight20Regular class="h-3.5 w-3.5 transition-transform duration-200 [[data-state=open]_&]:rotate-90" />
+                Generation Details
+              </CollapsibleTrigger>
+              <CollapsibleContent class="space-y-3 pt-2">
+                <div class="grid grid-cols-2 gap-2 mb-3" v-if="storySummary">
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-[11px] text-muted-foreground">Genre</span>
+                    <span class="text-sm font-semibold text-foreground">{{ storySummary.genre }}</span>
                   </div>
-                  <div class="result-item">
-                    <span class="result-label">Setting</span>
-                    <span class="result-value">{{ storySummary.setting }}</span>
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-[11px] text-muted-foreground">Setting</span>
+                    <span class="text-sm font-semibold text-foreground">{{ storySummary.setting }}</span>
                   </div>
-                  <div class="result-item">
-                    <span class="result-label">Story Beats</span>
-                    <span class="result-value">{{ storySummary.beats }}</span>
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-[11px] text-muted-foreground">Story Beats</span>
+                    <span class="text-sm font-semibold text-foreground">{{ storySummary.beats }}</span>
                   </div>
-                  <div class="result-item">
-                    <span class="result-label">Speech Segments</span>
-                    <span class="result-value">{{ storySummary.speechSegments }}</span>
-                  </div>
-                </div>
-                <div class="result-detail" v-if="storySummary?.emotionalArc">
-                  <span class="result-label">Emotional Arc</span>
-                  <p class="result-description">{{ storySummary.emotionalArc }}</p>
-                </div>
-                <div class="result-grid" v-if="designSummary" style="margin-top: 12px;">
-                  <div class="result-item">
-                    <span class="result-label">Scenes</span>
-                    <span class="result-value">{{ designSummary.scenes }}</span>
-                  </div>
-                  <div class="result-item">
-                    <span class="result-label">Music Segments</span>
-                    <span class="result-value">{{ designSummary.musicSegments }}</span>
-                  </div>
-                  <div class="result-item" v-if="designSummary.ambientSegments > 0">
-                    <span class="result-label">Ambient Segments</span>
-                    <span class="result-value">{{ designSummary.ambientSegments }}</span>
-                  </div>
-                  <div class="result-item" v-if="designSummary.globalStyle">
-                    <span class="result-label">Style</span>
-                    <span class="result-value">{{ designSummary.globalStyle }}</span>
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-[11px] text-muted-foreground">Speech Segments</span>
+                    <span class="text-sm font-semibold text-foreground">{{ storySummary.speechSegments }}</span>
                   </div>
                 </div>
-              </n-collapse-item>
-            </n-collapse>
+                <div class="mt-1" v-if="storySummary?.emotionalArc">
+                  <span class="text-[11px] text-muted-foreground">Emotional Arc</span>
+                  <p class="mt-1 mb-0 text-xs text-foreground/80 leading-relaxed">{{ storySummary.emotionalArc }}</p>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-3" v-if="designSummary">
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-[11px] text-muted-foreground">Scenes</span>
+                    <span class="text-sm font-semibold text-foreground">{{ designSummary.scenes }}</span>
+                  </div>
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-[11px] text-muted-foreground">Music Segments</span>
+                    <span class="text-sm font-semibold text-foreground">{{ designSummary.musicSegments }}</span>
+                  </div>
+                  <div class="flex flex-col gap-0.5" v-if="designSummary.ambientSegments > 0">
+                    <span class="text-[11px] text-muted-foreground">Ambient Segments</span>
+                    <span class="text-sm font-semibold text-foreground">{{ designSummary.ambientSegments }}</span>
+                  </div>
+                  <div class="flex flex-col gap-0.5" v-if="designSummary.globalStyle">
+                    <span class="text-[11px] text-muted-foreground">Style</span>
+                    <span class="text-sm font-semibold text-foreground">{{ designSummary.globalStyle }}</span>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </template>
 
-          <!-- ═══ SFX / AMBIENT EDIT CARD ═══ -->
+          <!-- SFX / AMBIENT EDIT CARD -->
           <template v-else-if="panelView === 'sfx-edit' && selectedAiTrack">
-            <div class="track-card-header">
-              <n-tag :type="trackTagType(selectedAiTrack)" size="small">
+            <div class="flex items-center gap-2">
+              <Badge :variant="trackBadgeVariant(selectedAiTrack)">
                 {{ selectedAiTrack.type }}
-              </n-tag>
-              <span class="track-card-title">{{ selectedAiTrack.label }}</span>
+              </Badge>
+              <span class="text-[13px] font-medium text-foreground truncate">{{ selectedAiTrack.label }}</span>
             </div>
 
-            <div class="track-card-meta">
+            <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>{{ formatTimeRange(selectedAiTrack.startTimeSec, selectedAiTrack.requestedDurationSec) }}</span>
-              <n-tag v-if="selectedAiTrack.loop" size="tiny" type="info">loop</n-tag>
+              <Badge v-if="selectedAiTrack.loop" variant="info" class="text-[10px] px-1 py-0">loop</Badge>
             </div>
 
-            <div class="track-card-section" v-if="selectedAiTrack.prompt">
-              <span class="track-card-section-label">Original prompt</span>
-              <p class="track-card-section-text">{{ selectedAiTrack.prompt }}</p>
+            <div class="flex flex-col gap-1" v-if="selectedAiTrack.prompt">
+              <span class="text-[11px] font-medium text-muted-foreground">Original prompt</span>
+              <p class="m-0 text-xs text-foreground/80 leading-relaxed">{{ selectedAiTrack.prompt }}</p>
             </div>
 
-            <div class="track-card-section">
-              <span class="track-card-section-label">Speed</span>
-              <div class="track-card-buttons">
-                <n-button size="tiny" quaternary @click="emit('adjustSpeed', selectedAiTrack.id, 0.75)">0.75x</n-button>
-                <n-button size="tiny" quaternary @click="emit('adjustSpeed', selectedAiTrack.id, 1)">1x</n-button>
-                <n-button size="tiny" quaternary @click="emit('adjustSpeed', selectedAiTrack.id, 1.25)">1.25x</n-button>
+            <div class="flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-muted-foreground">Speed</span>
+              <div class="flex gap-1">
+                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 0.75)">0.75x</Button>
+                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 1)">1x</Button>
+                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 1.25)">1.25x</Button>
               </div>
             </div>
 
-            <div class="track-card-section">
-              <span class="track-card-section-label">Extend</span>
-              <div class="track-card-buttons">
-                <n-button size="tiny" quaternary :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 1.5)">1.5x</n-button>
-                <n-button size="tiny" quaternary :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 2)">2x</n-button>
-                <n-button size="tiny" quaternary :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 3)">3x</n-button>
+            <div class="flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-muted-foreground">Extend</span>
+              <div class="flex gap-1">
+                <Button variant="ghost" size="sm" class="h-6 text-xs" :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 1.5)">1.5x</Button>
+                <Button variant="ghost" size="sm" class="h-6 text-xs" :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 2)">2x</Button>
+                <Button variant="ghost" size="sm" class="h-6 text-xs" :disabled="extendingTrackId === selectedAiTrack.id" @click="emit('extendTrack', selectedAiTrack.id, selectedTrackBaseDuration * 3)">3x</Button>
               </div>
             </div>
 
-            <div class="track-card-section track-card-section--prompt">
-              <span class="track-card-section-label">Prompt</span>
-              <n-input
-                v-model:value="editedPrompt"
-                type="textarea"
-                :autosize="{ minRows: 2, maxRows: 4 }"
-                size="small"
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-medium text-muted-foreground">Prompt</span>
+              <Textarea
+                v-model="editedPrompt"
+                class="min-h-[48px] text-sm"
                 placeholder="Describe the sound..."
               />
-              <n-button
-                size="small"
-                type="primary"
+              <Button
+                size="sm"
                 :disabled="!editedPrompt.trim() || regeneratingTrackId === selectedAiTrack.id"
                 :loading="regeneratingTrackId === selectedAiTrack.id"
                 @click="emit('regenerateTrack', selectedAiTrack.id, editedPrompt.trim())"
               >
                 Regenerate
-              </n-button>
+              </Button>
             </div>
           </template>
 
-          <!-- ═══ MUSIC READ-ONLY CARD ═══ -->
+          <!-- MUSIC READ-ONLY CARD -->
           <template v-else-if="panelView === 'music-readonly' && selectedAiTrack">
-            <div class="track-card-header">
-              <n-tag type="success" size="small">music</n-tag>
-              <span class="track-card-title">{{ selectedAiTrack.label }}</span>
+            <div class="flex items-center gap-2">
+              <Badge variant="success">music</Badge>
+              <span class="text-[13px] font-medium text-foreground truncate">{{ selectedAiTrack.label }}</span>
             </div>
 
-            <div class="track-card-meta">
+            <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>{{ formatTimeRange(selectedAiTrack.startTimeSec, selectedAiTrack.requestedDurationSec) }}</span>
-              <n-tag v-if="selectedAiTrack.loop" size="tiny" type="info">loop</n-tag>
+              <Badge v-if="selectedAiTrack.loop" variant="info" class="text-[10px] px-1 py-0">loop</Badge>
             </div>
 
-            <div class="track-card-meta" v-if="selectedAiTrack.genre || selectedAiTrack.style">
-              <span v-if="selectedAiTrack.genre" class="track-card-meta-item">
-                <span class="track-card-section-label">Genre:</span> {{ selectedAiTrack.genre }}
+            <div class="flex items-center gap-2 text-xs text-foreground" v-if="selectedAiTrack.genre || selectedAiTrack.style">
+              <span v-if="selectedAiTrack.genre">
+                <span class="text-[11px] font-medium text-muted-foreground">Genre:</span> {{ selectedAiTrack.genre }}
               </span>
-              <span v-if="selectedAiTrack.style" class="track-card-meta-item">
-                <span class="track-card-section-label">Style:</span> {{ selectedAiTrack.style }}
+              <span v-if="selectedAiTrack.style">
+                <span class="text-[11px] font-medium text-muted-foreground">Style:</span> {{ selectedAiTrack.style }}
               </span>
             </div>
 
-            <p class="music-regenerate-notice">
+            <p class="m-0 text-[11px] text-muted-foreground italic">
               Music tracks are generated together. Use Regenerate All below.
             </p>
           </template>
         </div>
 
-        <div class="complete-actions">
-          <n-button size="small" @click="emit('regenerate')">Regenerate All</n-button>
-          <button class="adjust-settings-btn" @click="emit('adjustSettings')">Adjust Settings</button>
+        <div class="flex items-center gap-3">
+          <Button variant="outline" size="sm" @click="emit('regenerate')">Regenerate All</Button>
+          <button
+            class="bg-transparent border-none py-1 px-0 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+            @click="emit('adjustSettings')"
+          >
+            Adjust Settings
+          </button>
         </div>
       </template>
     </template>
 
     <!-- Event Log -->
-    <div class="event-log" v-if="events.length > 0">
-      <n-collapse>
-        <n-collapse-item title="Activity Log" name="log">
-          <div class="log-entries">
+    <div class="mt-auto" v-if="events.length > 0">
+      <Collapsible>
+        <CollapsibleTrigger class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer bg-transparent border-none p-0">
+          <ChevronRight20Regular class="h-3.5 w-3.5 transition-transform duration-200 [[data-state=open]_&]:rotate-90" />
+          Activity Log
+        </CollapsibleTrigger>
+        <CollapsibleContent class="pt-2">
+          <div class="max-h-[200px] overflow-y-auto flex flex-col gap-0.5">
             <div
               v-for="(event, i) in events"
               :key="i"
-              class="log-entry"
+              class="flex gap-2 text-[11px] py-0.5"
             >
-              <span class="log-stage">{{ event.stage }}</span>
-              <span class="log-message">{{ event.message }}</span>
+              <span class="min-w-[80px] font-medium text-muted-foreground">{{ event.stage }}</span>
+              <span class="flex-1 text-muted-foreground/70">{{ event.message }}</span>
             </div>
           </div>
-        </n-collapse-item>
-      </n-collapse>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   </div>
 </template>
-
-<style scoped>
-.ai-status-panel {
-  height: 100%;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.panel-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--webcut-text-primary);
-}
-
-.progress-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.progress-message {
-  margin: 0;
-  font-size: 12px;
-  opacity: 0.7;
-  color: var(--webcut-text-primary);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 32px 16px;
-  opacity: 0.6;
-}
-
-.empty-state p {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--webcut-text-primary);
-}
-
-.empty-hint {
-  font-size: 11px !important;
-  opacity: 0.7;
-}
-
-.error-section {
-  padding: 8px 12px;
-  background: rgba(255, 0, 0, 0.1);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 0, 0, 0.2);
-}
-
-.error-message {
-  margin: 0;
-  font-size: 12px;
-  color: #e53e3e;
-}
-
-.options-echo {
-  padding: 8px 12px;
-  background: rgba(128, 128, 128, 0.08);
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.options-echo-title {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 600;
-  opacity: 0.6;
-  color: var(--webcut-text-primary);
-}
-
-.options-echo-item {
-  margin: 0;
-  font-size: 11px;
-  opacity: 0.7;
-  color: var(--webcut-text-primary);
-}
-
-.options-echo-label {
-  font-weight: 500;
-}
-
-.complete-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.adjust-settings-btn {
-  background: none;
-  border: none;
-  padding: 4px 0;
-  font-size: 12px;
-  color: var(--webcut-text-primary);
-  opacity: 0.6;
-  cursor: pointer;
-}
-
-.adjust-settings-btn:hover {
-  opacity: 1;
-}
-
-.back-to-results-btn {
-  background: none;
-  border: none;
-  padding: 4px 0;
-  font-size: 12px;
-  color: var(--webcut-text-primary);
-  opacity: 0.6;
-  cursor: pointer;
-  text-align: left;
-}
-
-.back-to-results-btn:hover {
-  opacity: 1;
-}
-
-/* ─── Panel View (replaces old results-section) ─── */
-
-.panel-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* ─── Summary View ─── */
-
-.summary-hint {
-  margin: 0;
-  font-size: 12px;
-  opacity: 0.5;
-  color: var(--webcut-text-primary);
-  font-style: italic;
-}
-
-.summary-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.summary-health {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.summary-health-item {
-  margin: 0;
-  font-size: 11px;
-  color: var(--webcut-text-primary);
-}
-
-.summary-health-item--warn {
-  opacity: 0.7;
-}
-
-.summary-health-item--error {
-  color: #e53e3e;
-}
-
-.summary-track-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.summary-track-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  margin: 0 -6px;
-  font-size: 12px;
-  border-radius: 4px;
-}
-
-.summary-track-item--clickable {
-  cursor: pointer;
-}
-
-.summary-track-item--clickable:hover {
-  background: rgba(128, 128, 128, 0.08);
-}
-
-.generation-details-collapse {
-  margin-top: 4px;
-}
-
-/* ─── Track Edit Card (SFX + Music) ─── */
-
-.track-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.track-card-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--webcut-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.track-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  opacity: 0.6;
-  color: var(--webcut-text-primary);
-}
-
-.track-card-meta-item {
-  font-size: 12px;
-  color: var(--webcut-text-primary);
-}
-
-.track-card-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.track-card-section--prompt {
-  gap: 6px;
-}
-
-.track-card-section-label {
-  font-size: 11px;
-  font-weight: 500;
-  opacity: 0.6;
-  color: var(--webcut-text-primary);
-}
-
-.track-card-section-text {
-  margin: 0;
-  font-size: 12px;
-  opacity: 0.8;
-  color: var(--webcut-text-primary);
-  line-height: 1.4;
-}
-
-.track-card-buttons {
-  display: flex;
-  gap: 4px;
-}
-
-.music-regenerate-notice {
-  margin: 0;
-  font-size: 11px;
-  opacity: 0.5;
-  color: var(--webcut-text-primary);
-  font-style: italic;
-}
-
-/* ─── Shared ─── */
-
-.track-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--webcut-text-primary);
-}
-
-.track-duration {
-  opacity: 0.5;
-  font-size: 11px;
-  color: var(--webcut-text-primary);
-}
-
-.result-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.result-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.result-label {
-  font-size: 11px;
-  opacity: 0.6;
-  color: var(--webcut-text-primary);
-}
-
-.result-value {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--webcut-text-primary);
-}
-
-.result-detail {
-  margin-top: 4px;
-}
-
-.result-description {
-  margin: 4px 0 0;
-  font-size: 12px;
-  opacity: 0.8;
-  color: var(--webcut-text-primary);
-  line-height: 1.4;
-}
-
-.log-entries {
-  max-height: 200px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.log-entry {
-  display: flex;
-  gap: 8px;
-  font-size: 11px;
-  padding: 2px 0;
-}
-
-.log-stage {
-  min-width: 80px;
-  font-weight: 500;
-  opacity: 0.6;
-  color: var(--webcut-text-primary);
-}
-
-.log-message {
-  flex: 1;
-  opacity: 0.7;
-  color: var(--webcut-text-primary);
-}
-
-.event-log {
-  margin-top: auto;
-}
-</style>
