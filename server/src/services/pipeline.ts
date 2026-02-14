@@ -2,8 +2,8 @@ import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import { v4 as uuid } from 'uuid';
-import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, LoudnessClass, TrackGenerationResult, GenerationStats, GenerationReport, ActionSpotting } from '../types.js';
-import { uploadVideoFile, analyzeStory, spotActions, createSoundDesignPlan, MODEL } from './gemini.js';
+import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, LoudnessClass, TrackGenerationResult, GenerationStats, GenerationReport, ActionSpotting, GlobalSonicContext } from '../types.js';
+import { uploadVideoFile, analyzeStory, createGlobalSonicContext, spotActions, createSoundDesignPlan, MODEL } from './gemini.js';
 import { generateMusic, generateSoundEffectWithFallback } from './elevenlabs.js';
 import { addEvent } from './job-store.js';
 
@@ -141,14 +141,43 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
     emit(jobId, {
       stage: 'analyzing_story',
-      progress: 0.28,
+      progress: 0.25,
       message: `Story analysis complete: ${storyAnalysis.beats.length} beats, genre: ${storyAnalysis.genre}`,
     });
 
-    // ─── Stage 2.5: Sound Design Plan — Pass 2 (0.28–0.34) ───
+    // ─── Stage 2.25: Global Sonic Context (0.25–0.31) ───
+    emit(jobId, {
+      stage: 'analyzing_sonic_context',
+      progress: 0.25,
+      message: 'Calibrating sonic world...',
+    });
+
+    const sonicContextResult = await createGlobalSonicContext(
+      videoFileRef,
+      storyAnalysis,
+      geminiApiKey,
+      signal,
+      userIntent,
+    );
+    const globalSonicContext: GlobalSonicContext = sonicContextResult.data;
+
+    checkAborted(signal);
+
+    // Write sonic context debug files (non-blocking)
+    writeDebug('3a_prompt_sonic_context.txt', sonicContextResult.promptSent);
+    writeDebug('3b_sonic_context_raw.txt', sonicContextResult.rawResponse);
+    writeDebug('3c_sonic_context_parsed.json', JSON.stringify(globalSonicContext, null, 2));
+
+    emit(jobId, {
+      stage: 'analyzing_sonic_context',
+      progress: 0.31,
+      message: `Sonic context: ${globalSonicContext.scale} ${globalSonicContext.realism_style}, ${globalSonicContext.environment_type}`,
+    });
+
+    // ─── Stage 2.5: Sound Design Plan — Pass 2 (0.31–0.37) ───
     emit(jobId, {
       stage: 'analyzing_sound_design',
-      progress: 0.28,
+      progress: 0.31,
       message: 'Planning sound design...',
     });
 
@@ -159,6 +188,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       geminiApiKey,
       signal,
       userIntent,
+      globalSonicContext,
     );
     const soundDesignPlan = soundDesignResult.data;
 
@@ -185,7 +215,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
         message: 'Spotting actions for sound effects...',
       });
 
-      const actionSpottingResult = await spotActions(videoFileRef, storyAnalysis, geminiApiKey, signal);
+      const actionSpottingResult = await spotActions(videoFileRef, storyAnalysis, geminiApiKey, signal, globalSonicContext);
       actionSpotting = actionSpottingResult.data;
 
       checkAborted(signal);
@@ -371,9 +401,10 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
         const duration = planned.endTime - planned.startTime;
         const plannedInfo = { type: 'sfx' as const, prompt: planned.sound, startTimeSec: planned.startTime, durationSec: duration };
 
+        const sfxPromptInfluence = 0.6;
         generationPromises.push(
-          generateSoundEffectWithFallback(planned.sound, duration, filePath, elevenLabsApiKey, 0.6)
-            .then(({ actualDurationSec, loop, retryCount, usedFallback, fallbackPrompt, error }) => {
+          generateSoundEffectWithFallback(planned.sound, duration, filePath, elevenLabsApiKey, sfxPromptInfluence)
+            .then(({ actualDurationSec, loop, retryCount, usedFallback, fallbackPrompt, error, apiSent }) => {
               const track: GeneratedTrack = {
                 id: trackId,
                 type: 'sfx',
@@ -391,6 +422,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 planned: plannedInfo,
                 status: usedFallback ? 'fallback' : 'success',
                 track, fallbackPrompt, error, retryCount,
+                apiSent,
               });
               emitGenerationProgress();
             })
@@ -444,6 +476,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     // ─── Stage 5: Complete (1.00) ───
     const result: SoundDesignResult = {
       storyAnalysis,
+      globalSonicContext,
       soundDesignPlan,
       tracks: tracks.sort((a, b) => a.startTimeSec - b.startTimeSec),
       generationReport,

@@ -20,15 +20,20 @@ export function setActiveJobId(id: string | null): void {
   activeJobId = id;
 }
 
+const JOB_FILE = 'job.json';
+
 export function initJobStore(): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  // Restore jobs from disk
+  // Restore jobs from disk: each job lives in data/jobs/<jobId>/job.json
   try {
-    const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith('.json'));
-    for (const file of files) {
+    const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const jobPath = path.join(DATA_DIR, ent.name, JOB_FILE);
       try {
-        const raw = fs.readFileSync(path.join(DATA_DIR, file), 'utf-8');
+        if (!fs.existsSync(jobPath)) continue;
+        const raw = fs.readFileSync(jobPath, 'utf-8');
         const job: Job = JSON.parse(raw);
         // Don't restore abortController (not serializable)
         delete job.abortController;
@@ -42,7 +47,7 @@ export function initJobStore(): void {
         }
         jobs.set(job.id, job);
       } catch {
-        // skip corrupt files
+        // skip corrupt or missing
       }
     }
   } catch {
@@ -122,10 +127,11 @@ export function setAbortController(jobId: string, controller: AbortController): 
 
 function persistJob(job: Job): void {
   try {
-    // Strip non-serializable fields
+    const jobDir = path.join(DATA_DIR, job.id);
+    fs.mkdirSync(jobDir, { recursive: true });
     const { abortController, ...serializable } = job;
     fs.writeFileSync(
-      path.join(DATA_DIR, `${job.id}.json`),
+      path.join(jobDir, JOB_FILE),
       JSON.stringify(serializable, null, 2),
     );
   } catch {
@@ -157,7 +163,7 @@ function cleanupOldJobs(): void {
       cleanupJobFiles(job);
       jobs.delete(id);
       try {
-        fs.unlinkSync(path.join(DATA_DIR, `${id}.json`));
+        fs.rmSync(path.join(DATA_DIR, id), { recursive: true, force: true });
       } catch { /* ignore */ }
     }
   }

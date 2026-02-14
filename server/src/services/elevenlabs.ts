@@ -135,9 +135,16 @@ function enrichShortPrompt(description: string): string {
   return `${description}, clear recording, close-mic, realistic sound design`;
 }
 
+export interface SoundEffectApiParams {
+  text: string;
+  duration_seconds: number;
+  prompt_influence: number;
+}
+
 /**
  * Generate a sound effect using ElevenLabs Text-to-Sound-Effects API.
  * Caps at 22s (API limit). Returns loop: true for longer requests.
+ * Also returns the exact params sent to the API for logging.
  */
 export async function generateSoundEffect(
   description: string,
@@ -145,14 +152,25 @@ export async function generateSoundEffect(
   outputPath: string,
   apiKey: string,
   promptInfluence = 0.5,
-): Promise<{ actualDurationSec: number; loop: boolean; retryCount: number }> {
+): Promise<{
+  actualDurationSec: number;
+  loop: boolean;
+  retryCount: number;
+  apiSent: SoundEffectApiParams;
+}> {
   const elevenLabs = getClient(apiKey);
   const effectiveDuration = Math.min(durationSec, 22);
   const enrichedPrompt = enrichShortPrompt(description);
+  const textSent = enrichedPrompt.slice(0, 200);
+  const apiSent: SoundEffectApiParams = {
+    text: textSent,
+    duration_seconds: effectiveDuration,
+    prompt_influence: promptInfluence,
+  };
 
   const { result: audio, attempts } = await withRetry(() =>
     elevenLabs.textToSoundEffects.convert({
-      text: enrichedPrompt.slice(0, 200),
+      text: textSent,
       duration_seconds: effectiveDuration,
       prompt_influence: promptInfluence,
     }),
@@ -165,6 +183,7 @@ export async function generateSoundEffect(
     actualDurationSec: actualDuration,
     loop: durationSec > 22,
     retryCount: attempts - 1,
+    apiSent,
   };
 }
 
@@ -177,6 +196,7 @@ function simplifyPrompt(description: string): string {
 /**
  * Wrapper around generateSoundEffect that tries a simplified prompt as fallback
  * after the primary prompt (with its internal retries) fails.
+ * Returns apiSent (exact params sent to ElevenLabs) for audit logging.
  */
 export async function generateSoundEffectWithFallback(
   description: string,
@@ -184,7 +204,15 @@ export async function generateSoundEffectWithFallback(
   outputPath: string,
   apiKey: string,
   promptInfluence = 0.5,
-): Promise<{ actualDurationSec: number; loop: boolean; retryCount: number; usedFallback: boolean; fallbackPrompt?: string; error?: string }> {
+): Promise<{
+  actualDurationSec: number;
+  loop: boolean;
+  retryCount: number;
+  usedFallback: boolean;
+  fallbackPrompt?: string;
+  error?: string;
+  apiSent: SoundEffectApiParams;
+}> {
   try {
     const result = await generateSoundEffect(description, durationSec, outputPath, apiKey, promptInfluence);
     return { ...result, usedFallback: false };

@@ -40,6 +40,19 @@ export const ActionSpottingSchema = z.object({
   actions: z.array(SpottedActionSchema).default([]),
 });
 
+// ─── Pass 1.75: Global Sonic Context Schema ───
+
+export const GlobalSonicContextSchema = z.object({
+  environment_type: z.string().default(''),
+  primary_location: z.string().default(''),
+  scale: z.string().default(''),
+  realism_style: z.string().default(''),
+  acoustic_character: z.string().default(''),
+  energy_profile: z.string().default(''),
+  perspective: z.string().default(''),
+  era: z.string().default(''),
+});
+
 // ─── Pass 2: Sound Design Plan Schema ───
 
 const MusicMixLevelSchema = z.enum(['off', 'low', 'medium', 'high']).default('medium');

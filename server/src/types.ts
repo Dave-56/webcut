@@ -38,6 +38,19 @@ export interface ActionSpotting {
   actions: SpottedAction[];
 }
 
+// ─── Pass 1.75: Global Sonic Context ───
+
+export interface GlobalSonicContext {
+  environment_type: string;    // e.g. "interior", "exterior", "mixed", "abstract"
+  primary_location: string;    // e.g. "urban apartment", "forest trail", "concert hall"
+  scale: string;               // e.g. "intimate", "medium", "grand", "epic"
+  realism_style: string;       // e.g. "hyperrealistic", "naturalistic", "stylized", "abstract"
+  acoustic_character: string;  // e.g. "dry and close", "reverberant hall", "open air"
+  energy_profile: string;      // e.g. "calm throughout", "builds from still to explosive"
+  perspective: string;         // e.g. "close-mic first person", "distant observer", "shifting"
+  era: string;                 // e.g. "contemporary", "1970s", "futuristic", "timeless"
+}
+
 // ─── Pass 2: Sound Design Plan ───
 
 export type MusicMixLevel = 'off' | 'low' | 'medium' | 'high';
@@ -96,6 +109,13 @@ export interface GeneratedTrack {
   prompt?: string;
 }
 
+/** Exact params sent to ElevenLabs for an SFX call (for audit in 10_generation_results.json). */
+export interface SfxApiSent {
+  text: string;
+  duration_seconds: number;
+  prompt_influence: number;
+}
+
 export interface TrackGenerationResult {
   planned: {
     type: 'music' | 'ambient' | 'sfx';
@@ -108,6 +128,8 @@ export interface TrackGenerationResult {
   error?: string;
   fallbackPrompt?: string;
   retryCount: number;
+  /** For SFX: exact text, duration_seconds, and prompt_influence sent to the API. */
+  apiSent?: SfxApiSent;
 }
 
 export interface GenerationStats {
@@ -125,13 +147,14 @@ export interface GenerationReport {
 
 export interface SoundDesignResult {
   storyAnalysis: StoryAnalysis;
+  globalSonicContext?: GlobalSonicContext;
   soundDesignPlan: SoundDesignPlan;
   tracks: GeneratedTrack[];
   generationReport?: GenerationReport;
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sound_design' | 'generating' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'generating' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;
