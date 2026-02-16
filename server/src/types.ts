@@ -32,6 +32,7 @@ export interface SpottedAction {
   endTime: number;
   action: string;    // what's happening visually
   sound: string;     // what it sounds like (ElevenLabs prompt)
+  loop: boolean;     // true = rhythmic/continuous (loop clip), false = one-shot event
 }
 
 export interface ActionSpotting {
@@ -107,19 +108,22 @@ export interface GeneratedTrack {
   style?: string;
   skip?: boolean;
   prompt?: string;
+  originalPrompt?: string;
 }
 
 /** Exact params sent to ElevenLabs for an SFX call (for audit in 10_generation_results.json). */
 export interface SfxApiSent {
   text: string;
-  duration_seconds: number;
-  prompt_influence: number;
+  durationSeconds: number;
+  promptInfluence: number;
+  loop: boolean;
 }
 
 export interface TrackGenerationResult {
   planned: {
     type: 'music' | 'ambient' | 'sfx';
     prompt: string;
+    originalPrompt?: string;
     startTimeSec: number;
     durationSec: number;
   };
@@ -128,7 +132,7 @@ export interface TrackGenerationResult {
   error?: string;
   fallbackPrompt?: string;
   retryCount: number;
-  /** For SFX: exact text, duration_seconds, and prompt_influence sent to the API. */
+  /** For SFX: exact params sent to the ElevenLabs API. */
   apiSent?: SfxApiSent;
 }
 
@@ -154,7 +158,7 @@ export interface SoundDesignResult {
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'generating' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'optimizing_prompts' | 'generating' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;

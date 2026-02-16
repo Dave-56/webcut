@@ -3,8 +3,9 @@ import path from 'path';
 import { Job, SSEEvent, JobProgress } from '../types.js';
 
 const DATA_DIR = path.resolve('data/jobs');
-const JOB_TTL_MS = 60 * 60 * 1000; // 1 hour
-const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+// Cleanup disabled — jobs are preserved in data/jobs/ for analysis
+// const JOB_TTL_MS = 60 * 60 * 1000;
+// const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 
 // In-memory job registry. Persisted to disk for resilience.
 const jobs = new Map<string, Job>();
@@ -54,8 +55,8 @@ export function initJobStore(): void {
     // no data dir yet
   }
 
-  // Periodic cleanup
-  setInterval(cleanupOldJobs, CLEANUP_INTERVAL_MS);
+  // Periodic cleanup disabled — jobs preserved for analysis
+  // setInterval(cleanupOldJobs, CLEANUP_INTERVAL_MS);
 }
 
 export function getJob(id: string): Job | undefined {
@@ -115,8 +116,7 @@ export function cancelJob(jobId: string): boolean {
     message: 'Job cancelled by user',
   });
 
-  // Clean up temp files
-  cleanupJobFiles(job);
+  // Job files preserved for analysis (cleanup disabled)
   return true;
 }
 
@@ -156,15 +156,16 @@ function cleanupJobFiles(job: Job): void {
   } catch { /* ignore */ }
 }
 
-function cleanupOldJobs(): void {
-  const now = Date.now();
-  for (const [id, job] of jobs) {
-    if (now - job.createdAt > JOB_TTL_MS && job.status !== 'running') {
-      cleanupJobFiles(job);
-      jobs.delete(id);
-      try {
-        fs.rmSync(path.join(DATA_DIR, id), { recursive: true, force: true });
-      } catch { /* ignore */ }
-    }
-  }
-}
+// Cleanup disabled — jobs are preserved in data/jobs/ for analysis
+// function cleanupOldJobs(): void {
+//   const now = Date.now();
+//   for (const [id, job] of jobs) {
+//     if (now - job.createdAt > JOB_TTL_MS && job.status !== 'running') {
+//       cleanupJobFiles(job);
+//       jobs.delete(id);
+//       try {
+//         fs.rmSync(path.join(DATA_DIR, id), { recursive: true, force: true });
+//       } catch { /* ignore */ }
+//     }
+//   }
+// }

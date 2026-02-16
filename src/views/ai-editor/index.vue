@@ -19,7 +19,7 @@ import {
 import { useWebCutLocale } from '../../hooks/i18n';
 import { useAiPipeline } from '../../hooks/ai-pipeline';
 import type { AnalysisOptions } from '../../services/ai-client';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { WebCutColors } from '../../types';
 
 const darkMode = defineModel<boolean | null | undefined>('darkMode', { default: null });
@@ -35,6 +35,7 @@ const { isDarkMode } = useWebCutDarkMode(darkMode);
 useWebCutLocale(language);
 
 const { resize } = useWebCutPlayer();
+const context = useWebCutContext();
 
 const {
   isProcessing,
@@ -53,10 +54,12 @@ const {
   extendingTrackId,
   trackBaseDurations,
   selectedAiTrack,
+  trackSourceMap,
   loadVideo,
   startAnalysis,
   cancel,
   adjustTrackSpeed,
+  adjustTrackVolume,
   shortenTrack,
   extendTrack,
   selectTrackOnTimeline,
@@ -65,6 +68,14 @@ const {
 
 const manager = ref();
 const showSettings = ref(false);
+
+const trackSourceVolume = computed(() => {
+  if (!selectedAiTrack.value) return 1;
+  const sourceKey = trackSourceMap.value.get(selectedAiTrack.value.id);
+  if (!sourceKey) return selectedAiTrack.value.volume; // fallback during re-push
+  const source = context.sources.value.get(sourceKey);
+  return source?.meta.audio?.volume ?? selectedAiTrack.value.volume;
+});
 
 function handleResized() {
   manager.value?.resizeHeight();
@@ -142,12 +153,14 @@ function handleBackToResults() {
                 :extending-track-id="extendingTrackId"
                 :track-base-durations="trackBaseDurations"
                 :selected-ai-track="selectedAiTrack"
+                :track-source-volume="trackSourceVolume"
                 @cancel="cancel"
                 @submit="handleIntentSubmit"
                 @regenerate="handleRegenerate"
                 @adjust-settings="handleAdjustSettings"
                 @back-to-results="handleBackToResults"
                 @adjust-speed="adjustTrackSpeed"
+                @adjust-volume="adjustTrackVolume"
                 @shorten-track="shortenTrack"
                 @extend-track="extendTrack"
                 @regenerate-track="regenerateTrack"

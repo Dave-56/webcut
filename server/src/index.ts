@@ -18,6 +18,11 @@ try {
   process.exit(1);
 }
 
+// Check optional API keys
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('OPENAI_API_KEY not set — prompt rewriting for ElevenLabs will be skipped');
+}
+
 // Initialize job persistence
 initJobStore();
 

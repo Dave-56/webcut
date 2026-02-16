@@ -374,113 +374,91 @@ export async function spotActions(
     ? 'This is ANIMATION — use exaggerated, stylized, punchy sounds: cartoon impacts, whooshes, boings, slapstick hits. Realistic Foley is wrong for this genre.'
     : 'This is LIVE-ACTION — use realistic Foley: natural materials, acoustic spaces, physical textures. Stylized or cartoon sounds are wrong for this genre.';
 
+  // Build sonic context as binding spotting rules, not just description hints
   const sonicContextBlock = sonicContext ? `
+---
 
-GLOBAL SONIC CONTEXT (sound character rules for this world):
-${JSON.stringify(sonicContext, null, 2)}
-- Reflect realism_style when describing how sounds should sound
-- Reflect acoustic_character in spatial descriptions
-- Reflect perspective for mic distance and proximity cues
+SONIC RULES (binding — these constrain WHAT you spot and HOW you describe it):
+
+Point of audition: ${sonicContext.perspective}
+→ Only spot sounds that would be noticed from this point of audition. If the perspective is subjective or character-focused, skip sounds the focal character would not register.
+
+Realism style: ${sonicContext.realism_style}
+→ This sets the quality bar. "Stylized" or "abstract" means only clear, iconic sound moments. "Hyperrealistic" or "naturalistic" means finer physical detail is appropriate.
+
+Acoustic scale: ${sonicContext.scale}
+→ Sounds below this scale are not worth spotting. In a "grand" or "medium-large" space, micro-rustles and subtle handling noises fall below the audible threshold.
+
+Environment: ${sonicContext.environment_type} — ${sonicContext.primary_location}
+Acoustic character: ${sonicContext.acoustic_character}
+Era: ${sonicContext.era}
+→ Use these when writing sound descriptions: choose materials, reverb, and tech appropriate to this world.
 ` : '';
 
-  const promptText = `You are detecting sound-producing actions in a video for automated sound design. Watch the entire video (${durationSec} seconds) carefully.
+  const promptText = `You are a sound editor spotting actions for sound effects in a ${durationSec}-second video. Watch the entire video carefully.
+
+Your sole job: identify the few, high-value physical events that deserve a dedicated sound effect, and write a precise prompt for each so an AI sound generator can create it. Quality over quantity — when in doubt, leave it out.
 
 GENRE: ${genre}
 ${genreDirective}
 ${sonicContextBlock}
-Your job:
-Identify visible physical events that could reasonably produce a discrete sound
-and write a clear prompt so an AI sound generator can create that sound.
+---
 
-IMPORTANT:
-Prefer capturing MORE valid events rather than too few.
-Another system can filter later.
-Do not try to judge budget, taste, or mixing priority.
+WHAT TO SPOT
 
-Think like computer vision:
-see event → describe sound.
+Only spot events with a clear, recognizable sound that adds real value to the mix:
+- Impacts, collisions, hits, drops, landings
+- Door actions, mechanisms starting/stopping
+- Vehicle actions, crashes
+- UI sounds (beeps, chimes, notifications) when on screen
+- Iconic footsteps when walking is a narrative beat (not incidental movement)
+- Distinct object interactions with audible payoff (glass breaking, keys jingling)
+
+For rhythmic actions (footsteps, typing, knocking), count what you see and describe the cadence: how many, how fast, what rhythm.
+
+LOOP DECISION: For each action, decide whether the generated audio clip should loop to fill the segment duration:
+- loop: true — the action is continuous or rhythmic across the segment (sustained footsteps, ongoing typing, engine running, repeated knocking). A short clip will be looped.
+- loop: false — the action is a single discrete event (one impact, one chime, one slam). The clip plays once.
 
 ---
 
-GENRE: {genre}
+WHAT NOT TO SPOT
 
-If animation/cartoon/anime → sounds may be exaggerated and stylized.
-If live action → sounds should feel realistic and natural.
-
----
-
-WHAT COUNTS AS AN EVENT
-
-Spot clear physical triggers such as:
-impacts, collisions, drops, hits, landings, door actions, object handling,
-vehicle actions, UI beeps, mechanisms starting/stopping,
-sudden movement accents, whooshes tied to motion.
-
-Footsteps count when visible or strongly implied.
-
-A single moment inside a busy environment is valid
-(example: one horn in traffic, one glass shattering in a crowd).
-
----
-
-WHAT NOT TO INCLUDE
-
-Do NOT create sounds for:
-- facial expressions
-- eye movements
-- silent gestures
-- characters standing or sitting without interaction
-- continuous background environments (handled elsewhere)
+Skip all of these — no exceptions:
+- Facial expressions, eye movements, lip sync
+- Expressive gestures that don't produce a clear sound (talking with hands, tapping chest, waving)
+- Subtle object handling with no distinct sound (shifting grip on phone, adjusting hold, fidgeting)
+- Micro-foley (cloth rustle from small movements, skin friction, hair touch)
+- Characters standing, sitting, or breathing without interaction
+- Continuous environments or atmospheres (handled by ambient tracks)
+- Anything the declared point of audition would not notice
 
 ---
 
 TIMING
 
-Use the moment the action becomes audible:
-contact, impact, trigger, or movement onset.
-
-Use fractional seconds.
-
-Minimum duration: 2 seconds  
-Maximum duration: 22 seconds
-
-Events may overlap.
+- Start time: the moment the sound begins (contact, impact, trigger, movement onset)
+- Use fractional seconds
+- Minimum duration: 2 seconds
+- Maximum duration: 22 seconds
+- Events may overlap
 
 ---
 
-DENSITY GUIDANCE
+WRITING THE SOUND PROMPT
 
-Typical expectation:
-1–3 events per 10 seconds depending on activity level.
+Write a short, direct description (30–80 chars) of what the sound IS. The AI generator works best with plain, concrete language.
 
-Fast action → more.
-Calm dialogue → fewer.
+Rules:
+- One sound, one phrase. No layered descriptions ("X mixed with Y").
+- No mixing direction (clean, punchy, hyper-focused, cinematic).
+- No redundant words (sound effect, foley, audio, SFX).
+- Base material/surface on what you SEE. Do NOT invent details.
+- For repeated sounds, state count or tempo (e.g. "four slow footsteps on wood floor").
 
----
-
-WRITING THE SOUND PROMPT (CRITICAL)
-
-Describe WHAT THE SOUND SHOULD SOUND LIKE based on what you SEE.
-
-Infer:
-- material (wood, metal, fabric, glass, concrete)
-- weight (light, heavy)
-- speed (fast, slow)
-- force (soft, hard)
-- space if visible (small room, large hall, outdoors)
-
-Combine them into one vivid, production-ready phrase.
-
-Good structure:
-[source] + [material] + [weight/force] + [character] + optional [space/mood]
-
-Example:
-"Heavy leather boots striking hollow metal stairs, slow deliberate steps, short industrial echo"
-
-Be specific.
-Avoid generic phrases like "footsteps" or "door sound".
-
-Do NOT invent details with zero visual evidence.
+Good: "Heavy boot steps on concrete, three slow impacts"
+Good: "Smartphone notification chime, bright digital ping"
+Bad: "Fast, crisp digital typing sound effects mixed with soft physical taps on a glass screen, hyper-focused and clean"
 
 ---
 
@@ -492,7 +470,8 @@ Return JSON ONLY:
       "startTime": <seconds>,
       "endTime": <seconds>,
       "action": "<verb + object>",
-      "sound": "<50-150 char generator-ready description>"
+      "sound": "<30-80 char direct sound description>",
+      "loop": <true if rhythmic/continuous, false if one-shot>
     }
   ]
 }

@@ -27,6 +27,7 @@ const props = defineProps<{
   extendingTrackId: string | null;
   trackBaseDurations: Map<string, number>;
   selectedAiTrack: GeneratedTrack | null;
+  trackSourceVolume: number;
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +37,7 @@ const emit = defineEmits<{
   (e: 'adjustSettings'): void;
   (e: 'backToResults'): void;
   (e: 'adjustSpeed', trackId: string, rate: number): void;
+  (e: 'adjustVolume', trackId: string, volume: number): void;
   (e: 'shortenTrack', trackId: string, durationSec: number): void;
   (e: 'extendTrack', trackId: string, durationSec: number): void;
   (e: 'regenerateTrack', trackId: string, prompt: string): void;
@@ -63,8 +65,26 @@ const editedPrompt = ref('');
 
 watch(() => props.selectedAiTrack, (track) => {
   if (!track || track.type === 'music') { editedPrompt.value = ''; return; }
-  editedPrompt.value = track.prompt || track.label.replace(/^(SFX|Ambient):\s*/i, '');
+  editedPrompt.value = track.prompt || track.originalPrompt || track.label.replace(/^(SFX|Ambient):\s*/i, '');
 });
+
+// Volume slider state — synced bidirectionally with prop
+const trackVolume = ref(1);
+let isSyncingVolume = false;
+
+watch(() => props.trackSourceVolume, (v) => {
+  isSyncingVolume = true;
+  trackVolume.value = v;
+  isSyncingVolume = false;
+});
+
+watch(trackVolume, (v) => {
+  if (isSyncingVolume) return;
+  if (!props.selectedAiTrack) return;
+  emit('adjustVolume', props.selectedAiTrack.id, v);
+});
+
+const volumePercent = computed(() => Math.round(trackVolume.value * 100));
 
 const progressPercent = computed(() => Math.round(props.progress * 100));
 
@@ -74,6 +94,7 @@ const stageLabel = computed(() => {
     uploading_to_gemini: 'Uploading to AI',
     analyzing_story: 'Analyzing Story',
     analyzing_sound_design: 'Planning Sound Design',
+    optimizing_prompts: 'Optimizing Prompts',
     generating: 'Generating Audio',
     populating: 'Building Timeline',
     complete: 'Complete',
@@ -348,6 +369,21 @@ function trackBadgeVariant(track: GeneratedTrack) {
             </div>
 
             <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-medium text-muted-foreground">Volume</span>
+                <span class="text-[11px] text-muted-foreground tabular-nums">{{ volumePercent }}%</span>
+              </div>
+              <input
+                type="range"
+                v-model.number="trackVolume"
+                min="0"
+                max="2"
+                step="0.01"
+                class="w-full h-1.5 accent-primary cursor-pointer"
+              />
+            </div>
+
+            <div class="flex flex-col gap-1">
               <span class="text-[11px] font-medium text-muted-foreground">Speed</span>
               <div class="flex gap-1">
                 <Button variant="ghost" size="sm" class="h-6 text-xs" @click="emit('adjustSpeed', selectedAiTrack.id, 0.75)">0.75x</Button>
@@ -402,6 +438,21 @@ function trackBadgeVariant(track: GeneratedTrack) {
             <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>{{ formatTimeRange(selectedAiTrack.startTimeSec, selectedAiTrack.requestedDurationSec) }}</span>
               <Badge v-if="selectedAiTrack.loop" variant="info" class="text-[10px] px-1 py-0">loop</Badge>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-medium text-muted-foreground">Volume</span>
+                <span class="text-[11px] text-muted-foreground tabular-nums">{{ volumePercent }}%</span>
+              </div>
+              <input
+                type="range"
+                v-model.number="trackVolume"
+                min="0"
+                max="2"
+                step="0.01"
+                class="w-full h-1.5 accent-primary cursor-pointer"
+              />
             </div>
 
             <div class="flex items-center gap-2 text-xs text-foreground" v-if="selectedAiTrack.genre || selectedAiTrack.style">

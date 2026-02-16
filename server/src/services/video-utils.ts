@@ -1,7 +1,7 @@
 import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, exec } from 'child_process';
 
 // Verify ffmpeg is available at startup
 export function checkFfmpeg(): void {
@@ -189,6 +189,95 @@ export async function adjustAudioTempo(
       .output(outputPath)
       .on('end', () => resolve(outputPath))
       .on('error', (err) => reject(err))
+      .run();
+  });
+}
+
+// ─── EBU R128 Loudness Normalization ───
+
+/** LUFS targets per track type — calibrated for multi-track mixing. */
+export const LOUDNORM_TARGETS = {
+  music:   -24,  // bed level, sits under dialogue
+  ambient: -28,  // felt not heard; volume tables provide the rest
+  sfx:     -18,  // punchy, present; scene-context ducking handles the mix
+} as const;
+
+/** True-peak ceiling: -2 dBTP leaves headroom for multi-track summing. */
+export const TRUE_PEAK_DBTP = -2.0;
+
+/** Minimum duration (seconds) for meaningful EBU R128 measurement. */
+const MIN_LUFS_DURATION = 0.5;
+
+export interface LoudnessStats {
+  input_i: number;
+  input_tp: number;
+  input_lra: number;
+  input_thresh: number;
+}
+
+/**
+ * Measure EBU R128 loudness statistics for an audio file (loudnorm pass 1).
+ * Returns the four values needed for an accurate dual-pass normalization.
+ */
+export function measureLoudness(inputPath: string): Promise<LoudnessStats> {
+  return new Promise((resolve, reject) => {
+    const cmd = `ffmpeg -hide_banner -i "${inputPath}" -af loudnorm=print_format=json -f null -`;
+
+    exec(cmd, { maxBuffer: 1024 * 1024 }, (err, _stdout, stderr) => {
+      if (err) return reject(new Error(`loudnorm measurement failed: ${err.message}`));
+
+      // ffmpeg prints the JSON stats to stderr
+      const jsonMatch = stderr.match(/\{[\s\S]*"input_i"[\s\S]*\}/);
+      if (!jsonMatch) return reject(new Error('Could not parse loudnorm stats from ffmpeg output'));
+
+      try {
+        const stats = JSON.parse(jsonMatch[0]);
+        resolve({
+          input_i: parseFloat(stats.input_i),
+          input_tp: parseFloat(stats.input_tp),
+          input_lra: parseFloat(stats.input_lra),
+          input_thresh: parseFloat(stats.input_thresh),
+        });
+      } catch (parseErr: any) {
+        reject(new Error(`Failed to parse loudnorm JSON: ${parseErr.message}`));
+      }
+    });
+  });
+}
+
+/**
+ * Normalize audio to a target LUFS using ffmpeg loudnorm (EBU R128 dual-pass).
+ * - Files shorter than 0.5s are returned as-is (too short for LUFS measurement).
+ * - Uses linear mode for transparent gain without dynamic compression artifacts.
+ * - Follows the same input/output pattern as trimAudioToLength and adjustAudioTempo.
+ */
+export async function normalizeAudio(
+  inputPath: string,
+  outputPath: string,
+  targetLufs: number = LOUDNORM_TARGETS.music,
+  truePeak: number = TRUE_PEAK_DBTP,
+): Promise<string> {
+  const duration = await getAudioDuration(inputPath);
+  if (duration < MIN_LUFS_DURATION) return inputPath;
+
+  // Pass 1: measure
+  const stats = await measureLoudness(inputPath);
+
+  // If already within 0.5 LU of target, skip processing
+  if (Math.abs(stats.input_i - targetLufs) < 0.5) return inputPath;
+
+  // Pass 2: apply normalization with measured values
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioFilter(
+        `loudnorm=I=${targetLufs}:TP=${truePeak}:LRA=11:` +
+        `measured_I=${stats.input_i}:measured_TP=${stats.input_tp}:` +
+        `measured_LRA=${stats.input_lra}:measured_thresh=${stats.input_thresh}:` +
+        `linear=true:print_format=none`,
+      )
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
       .run();
   });
 }

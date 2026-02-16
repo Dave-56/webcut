@@ -1,4 +1,4 @@
-import { ElevenLabsClient } from 'elevenlabs';
+import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import fs from 'fs';
 import path from 'path';
 import { getAudioDuration } from './video-utils.js';
@@ -77,11 +77,10 @@ async function saveStreamToFile(stream: any, outputPath: string): Promise<void> 
   fs.writeFileSync(outputPath, Buffer.from(stream));
 }
 
-const MUSIC_API_URL = 'https://api.elevenlabs.io/v1/music';
 const MAX_MUSIC_DURATION_MS = 300_000; // 5 minutes
 
 /**
- * Generate music using ElevenLabs Music API (POST /v1/music).
+ * Generate music using ElevenLabs Music API via the official SDK.
  */
 export async function generateMusic(
   prompt: string,
@@ -89,34 +88,20 @@ export async function generateMusic(
   outputPath: string,
   apiKey: string,
 ): Promise<{ actualDurationSec: number; loop: boolean; retryCount: number }> {
+  const elevenLabs = getClient(apiKey);
   const durationMs = Math.min(Math.round(durationSec * 1000), MAX_MUSIC_DURATION_MS);
 
-  const { result: response, attempts } = await withRetry(async () => {
-    const res = await fetch(`${MUSIC_API_URL}?output_format=mp3_44100_128`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        prompt,
-        music_length_ms: durationMs,
-        model_id: 'music_v1',
-        force_instrumental: true,
-      }),
-    });
-    if (!res.ok) {
-      const err: any = new Error(`Music API error: ${res.status}`);
-      err.status = res.status;
-      throw err;
-    }
-    return res;
-  });
+  const { result: audio, attempts } = await withRetry(() =>
+    elevenLabs.music.compose({
+      outputFormat: 'mp3_44100_128',
+      prompt,
+      musicLengthMs: durationMs,
+      modelId: 'music_v1',
+      forceInstrumental: true,
+    }),
+  );
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, buffer);
-
+  await saveStreamToFile(audio, outputPath);
   const actualDuration = await getAudioDuration(outputPath);
 
   return {
@@ -126,25 +111,18 @@ export async function generateMusic(
   };
 }
 
-/**
- * Enrich short prompts so the SFX API generates clearer, more realistic audio.
- * If the prompt is under 60 chars, append production-quality descriptors.
- */
-function enrichShortPrompt(description: string): string {
-  if (description.length >= 60) return description;
-  return `${description}, clear recording, close-mic, realistic sound design`;
-}
-
 export interface SoundEffectApiParams {
   text: string;
-  duration_seconds: number;
-  prompt_influence: number;
+  durationSeconds: number;
+  promptInfluence: number;
+  loop: boolean;
 }
 
 /**
  * Generate a sound effect using ElevenLabs Text-to-Sound-Effects API.
- * Caps at 22s (API limit). Returns loop: true for longer requests.
- * Also returns the exact params sent to the API for logging.
+ * Caps at 30s (API limit). Returns loop: true for longer requests or when
+ * shouldLoop is set. When shouldLoop is true, passes loop: true to the API
+ * so the generated audio is designed to repeat seamlessly (no audible seam).
  */
 export async function generateSoundEffect(
   description: string,
@@ -152,6 +130,7 @@ export async function generateSoundEffect(
   outputPath: string,
   apiKey: string,
   promptInfluence = 0.5,
+  shouldLoop = false,
 ): Promise<{
   actualDurationSec: number;
   loop: boolean;
@@ -159,20 +138,22 @@ export async function generateSoundEffect(
   apiSent: SoundEffectApiParams;
 }> {
   const elevenLabs = getClient(apiKey);
-  const effectiveDuration = Math.min(durationSec, 22);
-  const enrichedPrompt = enrichShortPrompt(description);
-  const textSent = enrichedPrompt.slice(0, 200);
+  const effectiveDuration = Math.min(durationSec, 30);
+  const textSent = description.slice(0, 200);
+  const needsLoop = shouldLoop || durationSec > 30;
   const apiSent: SoundEffectApiParams = {
     text: textSent,
-    duration_seconds: effectiveDuration,
-    prompt_influence: promptInfluence,
+    durationSeconds: effectiveDuration,
+    promptInfluence,
+    loop: needsLoop,
   };
 
   const { result: audio, attempts } = await withRetry(() =>
     elevenLabs.textToSoundEffects.convert({
       text: textSent,
-      duration_seconds: effectiveDuration,
-      prompt_influence: promptInfluence,
+      durationSeconds: effectiveDuration,
+      promptInfluence,
+      loop: needsLoop,
     }),
   );
 
@@ -181,7 +162,7 @@ export async function generateSoundEffect(
 
   return {
     actualDurationSec: actualDuration,
-    loop: durationSec > 22,
+    loop: needsLoop,
     retryCount: attempts - 1,
     apiSent,
   };
@@ -197,6 +178,7 @@ function simplifyPrompt(description: string): string {
  * Wrapper around generateSoundEffect that tries a simplified prompt as fallback
  * after the primary prompt (with its internal retries) fails.
  * Returns apiSent (exact params sent to ElevenLabs) for audit logging.
+ * Pass shouldLoop to generate seamlessly loopable audio via the ElevenLabs API.
  */
 export async function generateSoundEffectWithFallback(
   description: string,
@@ -204,6 +186,7 @@ export async function generateSoundEffectWithFallback(
   outputPath: string,
   apiKey: string,
   promptInfluence = 0.5,
+  shouldLoop = false,
 ): Promise<{
   actualDurationSec: number;
   loop: boolean;
@@ -214,7 +197,7 @@ export async function generateSoundEffectWithFallback(
   apiSent: SoundEffectApiParams;
 }> {
   try {
-    const result = await generateSoundEffect(description, durationSec, outputPath, apiKey, promptInfluence);
+    const result = await generateSoundEffect(description, durationSec, outputPath, apiKey, promptInfluence, shouldLoop);
     return { ...result, usedFallback: false };
   } catch (primaryErr: any) {
     const simplified = simplifyPrompt(description);
@@ -223,7 +206,7 @@ export async function generateSoundEffectWithFallback(
     }
 
     try {
-      const result = await generateSoundEffect(simplified, durationSec, outputPath, apiKey, promptInfluence);
+      const result = await generateSoundEffect(simplified, durationSec, outputPath, apiKey, promptInfluence, shouldLoop);
       return {
         ...result,
         usedFallback: true,
@@ -255,8 +238,8 @@ export async function generateDubbedSpeech(
   const { result: audio } = await withRetry(() =>
     elevenLabs.textToSpeech.convert(voiceId, {
       text,
-      model_id: modelId,
-      output_format: 'mp3_44100_128',
+      modelId,
+      outputFormat: 'mp3_44100_128',
     }),
   );
 

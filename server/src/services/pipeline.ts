@@ -5,6 +5,8 @@ import { v4 as uuid } from 'uuid';
 import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, LoudnessClass, TrackGenerationResult, GenerationStats, GenerationReport, ActionSpotting, GlobalSonicContext } from '../types.js';
 import { uploadVideoFile, analyzeStory, createGlobalSonicContext, spotActions, createSoundDesignPlan, MODEL } from './gemini.js';
 import { generateMusic, generateSoundEffectWithFallback } from './elevenlabs.js';
+import { normalizeAudio, LOUDNORM_TARGETS, TRUE_PEAK_DBTP } from './video-utils.js';
+import { rewritePrompts, type RewriteItem } from './prompt-rewriter.js';
 import { addEvent } from './job-store.js';
 
 interface PipelineConfig {
@@ -237,14 +239,82 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       });
     }
 
-    // ─── Stage 4: Generate music, ambient, and SFX (0.37–0.95) ───
+    // ─── Stage 3.5: Optimize prompts for ElevenLabs (0.37–0.39) ───
     const hasSfx = config.includeSfx !== false && actionSpotting.actions.length > 0;
     const hasAmbient = (soundDesignPlan.ambient_segments?.length ?? 0) > 0;
     const ambientSegments = soundDesignPlan.ambient_segments ?? [];
+    const sfxSegments = hasSfx ? actionSpotting.actions : [];
 
+    // Collect all SFX + ambient prompts for batch rewriting
+    const rewriteItems: RewriteItem[] = [];
+    const rewriteIndex: { kind: 'ambient' | 'sfx'; idx: number }[] = [];
+
+    for (let i = 0; i < ambientSegments.length; i++) {
+      const seg = ambientSegments[i];
+      rewriteIndex.push({ kind: 'ambient', idx: i });
+      rewriteItems.push({
+        prompt: seg.prompt,
+        type: 'ambient',
+        loop: seg.loop,
+        durationSec: seg.endTime - seg.startTime,
+      });
+    }
+    for (let i = 0; i < sfxSegments.length; i++) {
+      const seg = sfxSegments[i];
+      rewriteIndex.push({ kind: 'sfx', idx: i });
+      rewriteItems.push({
+        prompt: seg.sound,
+        type: 'sfx',
+        loop: seg.loop,
+        durationSec: seg.endTime - seg.startTime,
+      });
+    }
+
+    // Maps from segment index → rewritten prompt (originals used as fallback)
+    const rewrittenAmbientPrompts = new Map<number, string>();
+    const rewrittenSfxPrompts = new Map<number, string>();
+
+    if (rewriteItems.length > 0) {
+      emit(jobId, {
+        stage: 'optimizing_prompts',
+        progress: 0.37,
+        message: `Optimizing ${rewriteItems.length} audio prompts for generation...`,
+      });
+
+      checkAborted(signal);
+
+      const rewritten = await rewritePrompts(rewriteItems, globalSonicContext, signal);
+
+      checkAborted(signal);
+
+      // Build debug trail and index maps
+      const rewriteDebug: { type: string; original: string; rewritten: string; changed: boolean }[] = [];
+      for (let i = 0; i < rewriteItems.length; i++) {
+        const { kind, idx } = rewriteIndex[i];
+        const original = rewriteItems[i].prompt;
+        const optimized = rewritten[i];
+        rewriteDebug.push({ type: kind, original, rewritten: optimized, changed: original !== optimized });
+        if (kind === 'ambient') {
+          rewrittenAmbientPrompts.set(idx, optimized);
+        } else {
+          rewrittenSfxPrompts.set(idx, optimized);
+        }
+      }
+
+      writeDebug('9b_prompt_rewrites.json', JSON.stringify(rewriteDebug, null, 2));
+
+      const changedCount = rewriteDebug.filter(d => d.changed).length;
+      emit(jobId, {
+        stage: 'optimizing_prompts',
+        progress: 0.39,
+        message: `Optimized ${changedCount}/${rewriteItems.length} prompts`,
+      });
+    }
+
+    // ─── Stage 4: Generate music, ambient, and SFX (0.39–0.95) ───
     emit(jobId, {
       stage: 'generating',
-      progress: 0.37,
+      progress: 0.39,
       message: hasSfx || hasAmbient ? 'Generating music, ambient, and sound effects...' : 'Generating music...',
     });
 
@@ -255,7 +325,6 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     const sfxResults: TrackGenerationResult[] = [];
 
     // Per-track progress tracking
-    const sfxSegments = hasSfx ? actionSpotting.actions : [];
     const sfxGenerationCount = sfxSegments.length;
     const ambientGenerationCount = ambientSegments.length;
     const multiSegmentMusicCount = soundDesignPlan.music_segments.filter(m => !m.skip).length;
@@ -264,7 +333,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
     function emitGenerationProgress() {
       completedGenerations++;
-      const genProgress = 0.37 + (completedGenerations / totalGenerations) * 0.58;
+      const genProgress = 0.39 + (completedGenerations / totalGenerations) * 0.56;
       const failedCount = sfxResults.filter(r => r.status === 'failed').length + ambientResults.filter(r => r.status === 'failed').length;
 
       let msg = `Generating audio... (${completedGenerations}/${totalGenerations})`;
@@ -353,10 +422,11 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
         const trackId = uuid();
         const filePath = path.join(audioDir, `ambient_${trackId}.mp3`);
         const duration = planned.endTime - planned.startTime;
-        const plannedInfo = { type: 'ambient' as const, prompt: planned.prompt, startTimeSec: planned.startTime, durationSec: duration };
+        const optimizedPrompt = rewrittenAmbientPrompts.get(i) ?? planned.prompt;
+        const plannedInfo = { type: 'ambient' as const, prompt: optimizedPrompt, originalPrompt: planned.prompt, startTimeSec: planned.startTime, durationSec: duration };
 
         generationPromises.push(
-          generateSoundEffectWithFallback(planned.prompt, duration, filePath, elevenLabsApiKey, 0.5)
+          generateSoundEffectWithFallback(optimizedPrompt, duration, filePath, elevenLabsApiKey, 0.3, planned.loop)
             .then(({ actualDurationSec, loop, retryCount, usedFallback, fallbackPrompt, error }) => {
               const track: GeneratedTrack = {
                 id: trackId,
@@ -368,7 +438,8 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 loop: planned.loop || loop,
                 label: `Ambient: ${planned.prompt.slice(0, 50)}`,
                 volume: getAmbientVolume(planned.startTime, planned.loudness_class, soundDesignPlan.scenes),
-                prompt: planned.prompt,
+                prompt: optimizedPrompt,
+                originalPrompt: planned.prompt,
               };
               tracks.push(track);
               ambientResults.push({
@@ -399,12 +470,13 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
         const trackId = uuid();
         const filePath = path.join(audioDir, `sfx_${trackId}.mp3`);
         const duration = planned.endTime - planned.startTime;
-        const plannedInfo = { type: 'sfx' as const, prompt: planned.sound, startTimeSec: planned.startTime, durationSec: duration };
+        const optimizedPrompt = rewrittenSfxPrompts.get(i) ?? planned.sound;
+        const plannedInfo = { type: 'sfx' as const, prompt: optimizedPrompt, originalPrompt: planned.sound, startTimeSec: planned.startTime, durationSec: duration };
 
         const sfxPromptInfluence = 0.6;
         generationPromises.push(
-          generateSoundEffectWithFallback(planned.sound, duration, filePath, elevenLabsApiKey, sfxPromptInfluence)
-            .then(({ actualDurationSec, loop, retryCount, usedFallback, fallbackPrompt, error, apiSent }) => {
+          generateSoundEffectWithFallback(optimizedPrompt, duration, filePath, elevenLabsApiKey, sfxPromptInfluence, planned.loop)
+            .then(({ actualDurationSec, loop: apiLoop, retryCount, usedFallback, fallbackPrompt, error, apiSent }) => {
               const track: GeneratedTrack = {
                 id: trackId,
                 type: 'sfx',
@@ -412,10 +484,11 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 startTimeSec: planned.startTime,
                 actualDurationSec,
                 requestedDurationSec: duration,
-                loop,
+                loop: planned.loop || apiLoop,
                 label: `SFX: ${planned.action.slice(0, 50)}`,
                 volume: getSfxVolume(planned.startTime, soundDesignPlan.scenes),
-                prompt: planned.sound,
+                prompt: optimizedPrompt,
+                originalPrompt: planned.sound,
               };
               tracks.push(track);
               sfxResults.push({
@@ -440,6 +513,42 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     }
 
     await Promise.all(generationPromises);
+
+    checkAborted(signal);
+
+    // ─── Stage 4.5: Normalize audio loudness (EBU R128) ───
+    const tracksToNormalize = tracks.filter(t => t.filePath && !t.skip);
+    if (tracksToNormalize.length > 0) {
+      emit(jobId, {
+        stage: 'generating',
+        progress: 0.95,
+        message: `Normalizing audio levels (${tracksToNormalize.length} tracks)...`,
+      });
+
+      let normalizeCount = 0;
+      for (const track of tracksToNormalize) {
+        checkAborted(signal);
+
+        const lufsTarget = LOUDNORM_TARGETS[track.type] ?? LOUDNORM_TARGETS.sfx;
+        const normalizedPath = track.filePath.replace(/(\.\w+)$/, '_norm$1');
+
+        try {
+          const result = await normalizeAudio(track.filePath, normalizedPath, lufsTarget, TRUE_PEAK_DBTP);
+          // If normalizeAudio actually produced a new file, replace the original
+          if (result !== track.filePath) {
+            await fsp.rename(normalizedPath, track.filePath);
+          }
+          normalizeCount++;
+        } catch (err: any) {
+          // Non-fatal: log and keep the un-normalized file
+          console.warn(`Loudness normalization failed for ${track.id} (${track.type}):`, err.message);
+        }
+      }
+
+      writeDebug('10a_normalization.txt',
+        `Normalized ${normalizeCount}/${tracksToNormalize.length} tracks ` +
+        `(music: ${LOUDNORM_TARGETS.music} LUFS, ambient: ${LOUDNORM_TARGETS.ambient} LUFS, sfx: ${LOUDNORM_TARGETS.sfx} LUFS, TP: ${TRUE_PEAK_DBTP} dBTP)`);
+    }
 
     checkAborted(signal);
 

@@ -83,6 +83,7 @@ export interface GeneratedTrack {
   style?: string;
   skip?: boolean;
   prompt?: string;
+  originalPrompt?: string;
 }
 
 export interface GenerationStats {
@@ -106,7 +107,7 @@ export interface SoundDesignResult {
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sound_design' | 'generating' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sound_design' | 'optimizing_prompts' | 'generating' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;

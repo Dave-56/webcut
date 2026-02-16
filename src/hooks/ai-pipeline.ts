@@ -1,5 +1,6 @@
 import { ref, computed, type Ref, type ComputedRef } from 'vue';
 import { createRandomString } from 'ts-fns';
+import { throttle } from 'ts-fns';
 import { useWebCutContext, useWebCutPlayer } from './index';
 import {
   analyzeVideo,
@@ -52,7 +53,7 @@ export interface AiPipelineState {
 }
 
 export function useAiPipeline() {
-  const { push, remove } = useWebCutPlayer();
+  const { push, remove, syncSourceMeta, syncSourceTickInterceptor } = useWebCutPlayer();
   const context = useWebCutContext();
   const { rails, sources } = context;
 
@@ -170,7 +171,10 @@ export function useAiPipeline() {
     // preventing music from overrunning the video end
     const durationUs = track.requestedDurationSec * 1e6;
 
-    const audioOpts: Record<string, any> = { volume: track.volume, loop: track.loop };
+    const targetVolume = track.volume;
+    // Pass volume=1 to AudioClip so samples aren't pre-scaled;
+    // real volume is applied at runtime via tick interceptor
+    const audioOpts: Record<string, any> = { volume: 1, loop: track.loop };
     if (track.type === 'music') {
       // Scale fades proportionally: 15% of duration, min 0.5s, max 3s
       const durationSec = track.requestedDurationSec;
@@ -197,6 +201,14 @@ export function useAiPipeline() {
       withRailId: railId,
     });
     trackSourceMap.value.set(track.id, sourceKey);
+
+    // Install tick interceptor (handles volume, mute, fades at runtime)
+    // and set the real volume — must happen after push() adds to sources map
+    const source = sources.value.get(sourceKey);
+    if (source) {
+      syncSourceMeta(source, { audio: { volume: targetVolume } });
+      syncSourceTickInterceptor(sourceKey);
+    }
 
     // Store base duration only on first push (not on extend re-push)
     if (!trackBaseDurations.value.has(track.id)) {
@@ -386,6 +398,22 @@ export function useAiPipeline() {
   }
 
   /**
+   * Adjust volume of a track at runtime via tick interceptor.
+   */
+  const throttledSyncTick = throttle(syncSourceTickInterceptor, 50);
+  function adjustTrackVolume(trackId: string, volume: number) {
+    const sourceKey = trackSourceMap.value.get(trackId);
+    if (!sourceKey) return;
+    const source = sources.value.get(sourceKey);
+    if (!source) return;
+    syncSourceMeta(source, { audio: { volume } });
+    throttledSyncTick(sourceKey);
+    // Keep track object in sync for UI fallback
+    const track = result.value?.tracks.find(t => t.id === trackId);
+    if (track) track.volume = volume;
+  }
+
+  /**
    * Shorten a track by truncating its segment end (pure frontend, no re-download).
    */
   function shortenTrack(trackId: string, newDurationSec: number) {
@@ -435,14 +463,16 @@ export function useAiPipeline() {
     const oldRequestedDuration = track.requestedDurationSec;
     const oldLoop = track.loop;
 
-    // Capture current playbackRate before removing the sprite
+    // Capture current playbackRate and volume before removing the sprite
     const oldSourceKey = trackSourceMap.value.get(trackId);
     const oldSource = oldSourceKey ? sources.value.get(oldSourceKey) : null;
     const savedPlaybackRate = oldSource?.sprite.time.playbackRate ?? 1;
+    const savedVolume = oldSource?.meta.audio?.volume ?? track.volume;
 
     // Update track metadata for re-push
     track.requestedDurationSec = newDurationSec;
     track.loop = true;
+    track.volume = savedVolume;
 
     // Determine rail
     let railId: string;
@@ -454,10 +484,11 @@ export function useAiPipeline() {
     if (oldSourceKey) {
       remove(oldSourceKey);
       trackSourceMap.value.delete(trackId);
-      // Clean orphaned segment from rail
+      // Clean orphaned segment from rail (splice to keep same reactive array)
       const rail = rails.value.find(r => r.id === railId);
       if (rail) {
-        rail.segments = rail.segments.filter(s => s.sourceKey !== oldSourceKey);
+        const idx = rail.segments.findIndex(s => s.sourceKey === oldSourceKey);
+        if (idx !== -1) rail.segments.splice(idx, 1);
       }
     }
 
@@ -520,27 +551,31 @@ export function useAiPipeline() {
         durationSec: track.requestedDurationSec,
       });
 
-      // Capture current playbackRate before removing the sprite
+      // Capture current playbackRate and volume before removing the sprite
       const oldSourceKey = trackSourceMap.value.get(trackId);
       const oldSource = oldSourceKey ? sources.value.get(oldSourceKey) : null;
       const savedPlaybackRate = oldSource?.sprite.time.playbackRate ?? 1;
+      const savedVolume = oldSource?.meta.audio?.volume ?? track.volume;
 
       // Remove old source from timeline
       if (oldSourceKey) {
         remove(oldSourceKey);
         trackSourceMap.value.delete(trackId);
-        // Clean orphaned segment from rail
+        // Clean orphaned segment from rail (splice to keep same reactive array)
         const rail = rails.value.find(r => r.id === railId);
         if (rail) {
-          rail.segments = rail.segments.filter(s => s.sourceKey !== oldSourceKey);
+          const idx = rail.segments.findIndex(s => s.sourceKey === oldSourceKey);
+          if (idx !== -1) rail.segments.splice(idx, 1);
         }
       }
 
       // Update track object in result
       track.actualDurationSec = actualDurationSec;
       track.loop = loop;
+      track.originalPrompt = newPrompt;
       track.prompt = newPrompt;
       track.label = `${track.type === 'sfx' ? 'SFX' : 'Ambient'}: ${newPrompt.slice(0, 50)}`;
+      track.volume = savedVolume;
 
       await downloadAndPushAudio(jobId.value, track, railId);
 
@@ -584,6 +619,8 @@ export function useAiPipeline() {
     resetToIntent,
     cancel,
     adjustTrackSpeed,
+    adjustTrackVolume,
+    trackSourceMap,
     shortenTrack,
     extendTrack,
     selectTrackOnTimeline,

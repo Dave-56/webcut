@@ -34,6 +34,7 @@ const SpottedActionSchema = z.object({
   endTime: z.number(),
   action: z.string().default(''),
   sound: z.string().default(''),
+  loop: z.boolean().default(false),
 });
 
 export const ActionSpottingSchema = z.object({
