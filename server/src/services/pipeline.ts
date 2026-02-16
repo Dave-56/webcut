@@ -14,10 +14,22 @@ interface PipelineConfig {
   videoPath: string;
   userIntent?: string;
   includeSfx?: boolean;
+  contentType?: string;
   geminiApiKey: string;
   elevenLabsApiKey: string;
   signal?: AbortSignal;
 }
+
+/**
+ * Post-hoc music volume multiplier per content type.
+ * Applied on top of scene-based getVolumeForTrack() to enforce
+ * content-type-appropriate music levels as a safety net.
+ */
+const CONTENT_TYPE_MUSIC_MULTIPLIER: Record<string, number> = {
+  podcast: 0.6,
+  streaming: 0.7,
+  'short-form': 1.1,
+};
 
 function emit(jobId: string, progress: JobProgress): void {
   addEvent(jobId, progress);
@@ -122,6 +134,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       model: MODEL,
       timestamp: new Date().toISOString(),
       userIntent: userIntent ?? null,
+      contentType: config.contentType ?? null,
     }, null, 2));
 
     // ─── Stage 2: Story Analysis — Pass 1 (0.15–0.30) ───
@@ -131,7 +144,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       message: 'Analyzing story...',
     });
 
-    const storyResult = await analyzeStory(videoFileRef, geminiApiKey, signal, userIntent);
+    const storyResult = await analyzeStory(videoFileRef, geminiApiKey, signal, config.contentType, userIntent);
     const storyAnalysis = storyResult.data;
 
     checkAborted(signal);
@@ -159,6 +172,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       storyAnalysis,
       geminiApiKey,
       signal,
+      config.contentType,
       userIntent,
     );
     const globalSonicContext: GlobalSonicContext = sonicContextResult.data;
@@ -189,6 +203,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       storyAnalysis.durationSec,
       geminiApiKey,
       signal,
+      config.contentType,
       userIntent,
       globalSonicContext,
     );
@@ -389,7 +404,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
                 requestedDurationSec: duration,
                 loop: planned.loop || loop,
                 label: `Music: ${planned.genre} — ${planned.prompt.slice(0, 40)}`,
-                volume: getVolumeForTrack(planned.startTime, soundDesignPlan.scenes),
+                volume: Math.min(1.0, getVolumeForTrack(planned.startTime, soundDesignPlan.scenes) * (CONTENT_TYPE_MUSIC_MULTIPLIER[config.contentType ?? ''] ?? 1.0)),
                 genre: planned.genre,
                 style: planned.style,
                 prompt: enrichedPrompt,

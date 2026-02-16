@@ -5,8 +5,17 @@ import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
-import type { AnalysisOptions } from '../../services/ai-client';
+import type { AnalysisOptions, ContentType } from '../../services/ai-client';
 import type { VideoMeta } from '../../hooks/ai-pipeline';
+
+const CONTENT_TYPES: { id: ContentType; label: string; description: string; icon: string }[] = [
+  { id: 'youtube', label: 'YouTube', description: 'Music that supports your story', icon: '\u25B6' },
+  { id: 'podcast', label: 'Podcast', description: 'Intros, transitions, background beds', icon: '\uD83C\uDF99' },
+  { id: 'streaming', label: 'Streaming', description: 'Low-key background for live content', icon: '\u25C9' },
+  { id: 'short-form', label: 'Short-form', description: 'High energy for reels and shorts', icon: '\u26A1' },
+  { id: 'film', label: 'Film & Video', description: 'Cinematic scores that elevate', icon: '\uD83C\uDFAC' },
+  { id: 'commercial', label: 'Commercial', description: 'Clean, polished, brand-safe', icon: '\u2606' },
+];
 
 const props = defineProps<{
   videoMeta: VideoMeta;
@@ -24,6 +33,7 @@ const prompt = ref(
 );
 const useExistingAudio = ref(props.initialOptions?.useExistingAudio ?? false);
 const includeSfx = ref(props.initialOptions?.includeSfx !== false);
+const contentType = ref<ContentType | undefined>(props.initialOptions?.contentType);
 
 const formattedDuration = computed(() => {
   const sec = props.videoMeta.durationSec;
@@ -31,6 +41,10 @@ const formattedDuration = computed(() => {
   const s = Math.round(sec % 60);
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 });
+
+function toggleContentType(id: ContentType) {
+  contentType.value = contentType.value === id ? undefined : id;
+}
 
 function handleSubmit() {
   const options: AnalysisOptions = {};
@@ -43,6 +57,9 @@ function handleSubmit() {
   if (!includeSfx.value) {
     options.includeSfx = false;
   }
+  if (contentType.value) {
+    options.contentType = contentType.value;
+  }
   emit('submit', options);
 }
 </script>
@@ -52,6 +69,26 @@ function handleSubmit() {
     <div class="flex items-center gap-1.5">
       <p class="m-0 text-[13px] font-medium text-foreground truncate flex-1">{{ videoMeta.filename }}</p>
       <Badge variant="secondary" class="text-[10px] px-1.5 py-0 shrink-0">{{ formattedDuration }}</Badge>
+    </div>
+
+    <div class="flex flex-col gap-1.5">
+      <Label class="text-xs font-medium text-foreground">What are you making?</Label>
+      <div class="grid grid-cols-3 gap-1.5">
+        <button
+          v-for="ct in CONTENT_TYPES"
+          :key="ct.id"
+          class="flex flex-col items-start gap-0.5 p-2 rounded-md border text-left transition-colors bg-transparent cursor-pointer"
+          :class="contentType === ct.id
+            ? 'border-primary bg-primary/5 text-foreground'
+            : 'border-border hover:border-muted-foreground/50 text-muted-foreground hover:text-foreground'"
+          @click="toggleContentType(ct.id)"
+        >
+          <span class="text-sm leading-none">{{ ct.icon }}</span>
+          <span class="text-[11px] font-medium leading-tight">{{ ct.label }}</span>
+          <span class="text-[10px] leading-tight opacity-70">{{ ct.description }}</span>
+        </button>
+      </div>
+      <p class="m-0 text-[10px] text-muted-foreground">Optional — helps the AI tailor sound design to your format.</p>
     </div>
 
     <div class="flex flex-col gap-1.5">

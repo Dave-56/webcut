@@ -107,18 +107,21 @@ export interface SoundDesignResult {
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sound_design' | 'optimizing_prompts' | 'generating' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'optimizing_prompts' | 'generating' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;
   error?: string;
 }
 
+export type ContentType = 'youtube' | 'podcast' | 'short-form' | 'film' | 'commercial' | 'streaming';
+
 export interface AnalysisOptions {
   creativeDirection?: string;
   userIntent?: string;
   useExistingAudio?: boolean;
   includeSfx?: boolean;
+  contentType?: ContentType;
 }
 
 export interface AnalyzeResponse {
@@ -140,6 +143,7 @@ export async function analyzeVideo(
   if (options?.userIntent) formData.append('userIntent', options.userIntent);
   if (options?.useExistingAudio) formData.append('useExistingAudio', 'true');
   if (options?.includeSfx === false) formData.append('includeSfx', 'false');
+  if (options?.contentType) formData.append('contentType', options.contentType);
 
   const res = await fetch(`${API_BASE}/analyze`, {
     method: 'POST',

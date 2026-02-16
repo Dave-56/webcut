@@ -93,6 +93,7 @@ const stageLabel = computed(() => {
     uploading: 'Uploading',
     uploading_to_gemini: 'Uploading to AI',
     analyzing_story: 'Analyzing Story',
+    analyzing_sonic_context: 'Calibrating Sound',
     analyzing_sound_design: 'Planning Sound Design',
     optimizing_prompts: 'Optimizing Prompts',
     generating: 'Generating Audio',
@@ -156,9 +157,18 @@ const generationHealth = computed(() => {
   };
 });
 
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+  youtube: 'YouTube',
+  podcast: 'Podcast',
+  'short-form': 'Short-form',
+  film: 'Film & Video',
+  commercial: 'Commercial',
+  streaming: 'Streaming',
+};
+
 const hasOptionsEcho = computed(() => {
   const o = props.lastOptions;
-  return o.userIntent || o.useExistingAudio;
+  return o.userIntent || o.useExistingAudio || o.contentType;
 });
 
 function formatTimeRange(startSec: number, durationSec: number): string {
@@ -216,6 +226,9 @@ function trackBadgeVariant(track: GeneratedTrack) {
       <!-- Echo of user options -->
       <div class="p-2.5 px-3 bg-muted/50 rounded-md flex flex-col gap-1" v-if="hasOptionsEcho">
         <p class="m-0 text-[11px] font-semibold text-muted-foreground">Your settings</p>
+        <p v-if="lastOptions.contentType" class="m-0 text-[11px] text-muted-foreground">
+          <span class="font-medium">Format:</span> {{ CONTENT_TYPE_LABELS[lastOptions.contentType] || lastOptions.contentType }}
+        </p>
         <p v-if="lastOptions.userIntent" class="m-0 text-[11px] text-muted-foreground line-clamp-2">
           {{ lastOptions.userIntent }}
         </p>
@@ -311,6 +324,10 @@ function trackBadgeVariant(track: GeneratedTrack) {
               </CollapsibleTrigger>
               <CollapsibleContent class="space-y-3 pt-2">
                 <div class="grid grid-cols-2 gap-2 mb-3" v-if="storySummary">
+                  <div class="flex flex-col gap-0.5" v-if="lastOptions.contentType">
+                    <span class="text-[11px] text-muted-foreground">Format</span>
+                    <span class="text-sm font-semibold text-foreground">{{ CONTENT_TYPE_LABELS[lastOptions.contentType] || lastOptions.contentType }}</span>
+                  </div>
                   <div class="flex flex-col gap-0.5">
                     <span class="text-[11px] text-muted-foreground">Genre</span>
                     <span class="text-sm font-semibold text-foreground">{{ storySummary.genre }}</span>

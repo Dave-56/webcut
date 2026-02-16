@@ -65,6 +65,16 @@ router.post('/', upload.single('video'), (req, res) => {
   const userIntent = req.body?.userIntent || undefined;
   const includeSfx = req.body?.includeSfx !== 'false'; // default: true
 
+  // Validate contentType against allowlist
+  const VALID_CONTENT_TYPES = ['youtube', 'podcast', 'short-form', 'film', 'commercial', 'streaming'];
+  const rawContentType = req.body?.contentType;
+  if (rawContentType && !VALID_CONTENT_TYPES.includes(rawContentType)) {
+    fs.unlink(req.file.path, () => {});
+    res.status(400).json({ error: `Invalid contentType: ${rawContentType}` });
+    return;
+  }
+  const contentType: string | undefined = rawContentType || undefined;
+
   const job = createJob(jobId, req.file.path);
 
   // Set up abort controller
@@ -77,6 +87,7 @@ router.post('/', upload.single('video'), (req, res) => {
     videoPath: req.file.path,
     userIntent,
     includeSfx,
+    contentType,
     geminiApiKey,
     elevenLabsApiKey,
     signal: abortController.signal,
