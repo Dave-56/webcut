@@ -64,6 +64,7 @@ const {
   extendTrack,
   selectTrackOnTimeline,
   regenerateTrack,
+  regenerateDialogueLine,
 } = useAiPipeline();
 
 const manager = ref();
@@ -164,6 +165,7 @@ function handleBackToResults() {
                 @shorten-track="shortenTrack"
                 @extend-track="extendTrack"
                 @regenerate-track="regenerateTrack"
+                @regenerate-dialogue-line="(id: string, text: string, emotion: string) => regenerateDialogueLine(id, text, emotion)"
                 @select-track="selectTrackOnTimeline"
               />
             </ResizablePanel>

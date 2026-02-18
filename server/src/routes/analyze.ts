@@ -64,6 +64,8 @@ router.post('/', upload.single('video'), (req, res) => {
   const jobId = uuid();
   const userIntent = req.body?.userIntent || undefined;
   const includeSfx = req.body?.includeSfx !== 'false'; // default: true
+  const includeDialogue = req.body?.includeDialogue === 'true';
+  const dialogueScript = req.body?.dialogueScript || undefined;
 
   // Validate contentType against allowlist
   const VALID_CONTENT_TYPES = ['youtube', 'podcast', 'short-form', 'film', 'commercial', 'streaming'];
@@ -87,6 +89,8 @@ router.post('/', upload.single('video'), (req, res) => {
     videoPath: req.file.path,
     userIntent,
     includeSfx,
+    includeDialogue,
+    dialogueScript,
     contentType,
     geminiApiKey,
     elevenLabsApiKey,

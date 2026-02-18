@@ -8,6 +8,7 @@ import {
   downloadAudioTrack,
   cancelJob as cancelJobApi,
   regenerateSfx,
+  regenerateDialogue,
   type AnalysisOptions,
   type JobProgress,
   type SoundDesignResult,
@@ -108,15 +109,18 @@ export function useAiPipeline() {
   let musicRailId = '';
   let ambientRailId = '';
   let sfxRailId = '';
+  let dialogueRailIds: string[] = [];
+  const dialogueTrackRailMap = ref(new Map<string, string>());
+  const dialogueSpeakerRailMap = ref(new Map<string, string>());
 
   // SSE cleanup function
   let closeSSE: (() => void) | null = null;
 
   /**
    * Pre-create empty rails so withRailId always finds them.
-   * Up to 3 rails: music (always), ambient (if segments exist), sfx/foley (if actions exist).
+   * Rails: music (always), ambient (optional), SFX (optional), dialogue x2 (optional).
    */
-  function createAudioRails(hasAmbient: boolean, hasSfx: boolean) {
+  function createAudioRails(hasAmbient: boolean, hasSfx: boolean, hasDialogue: boolean) {
     musicRailId = createRandomString(16);
     rails.value.push(
       { id: musicRailId, type: 'audio', segments: [], transitions: [] },
@@ -135,6 +139,16 @@ export function useAiPipeline() {
         { id: sfxRailId, type: 'audio', segments: [], transitions: [] },
       );
     }
+
+    if (hasDialogue) {
+      dialogueRailIds = [createRandomString(16), createRandomString(16)];
+      rails.value.push(
+        { id: dialogueRailIds[0], type: 'audio', segments: [], transitions: [] },
+        { id: dialogueRailIds[1], type: 'audio', segments: [], transitions: [] },
+      );
+    } else {
+      dialogueRailIds = [];
+    }
   }
 
   /**
@@ -150,6 +164,44 @@ export function useAiPipeline() {
     rails.value = rails.value.filter(r => r.type !== 'audio');
     trackSourceMap.value.clear();
     trackBaseDurations.value.clear();
+    dialogueTrackRailMap.value.clear();
+    dialogueSpeakerRailMap.value.clear();
+  }
+
+  function toUs(sec: number): number {
+    return Math.round(sec * 1e6);
+  }
+
+  function chooseDialogueRail(track: GeneratedTrack, preferredRailId?: string): string {
+    if (dialogueRailIds.length < 2) {
+      return dialogueRailIds[0] ?? '';
+    }
+
+    const startUs = toUs(track.startTimeSec);
+    const endUs = startUs + toUs(track.requestedDurationSec);
+    const firstRailId = dialogueRailIds[0];
+    const secondRailId = dialogueRailIds[1];
+    const fallbackPreferred = preferredRailId && dialogueRailIds.includes(preferredRailId)
+      ? preferredRailId
+      : firstRailId;
+    const alternateRailId = fallbackPreferred === firstRailId ? secondRailId : firstRailId;
+
+    const hasOverlap = (railId: string) => {
+      const rail = rails.value.find(r => r.id === railId);
+      if (!rail) return false;
+      return rail.segments.some(segment => !(endUs <= segment.start || startUs >= segment.end));
+    };
+
+    if (!hasOverlap(fallbackPreferred)) return fallbackPreferred;
+    if (!hasOverlap(alternateRailId)) return alternateRailId;
+
+    const latestEndUs = (railId: string) => {
+      const rail = rails.value.find(r => r.id === railId);
+      if (!rail || rail.segments.length === 0) return 0;
+      return Math.max(...rail.segments.map(s => s.end));
+    };
+
+    return latestEndUs(firstRailId) <= latestEndUs(secondRailId) ? firstRailId : secondRailId;
   }
 
   /**
@@ -187,6 +239,8 @@ export function useAiPipeline() {
       const fadeSec = Math.max(0.5, Math.min(2, durationSec * 0.15));
       audioOpts.fadeIn = fadeSec * 1e6;
       audioOpts.fadeOut = fadeSec * 1e6;
+    } else if (track.type === 'dialogue') {
+      // No fades for dialogue — speech should start and end cleanly
     } else if (track.type === 'sfx' && track.requestedDurationSec > 5) {
       // Long SFX (>5s, continuous) get short fades
       const durationSec = track.requestedDurationSec;
@@ -223,10 +277,33 @@ export function useAiPipeline() {
     // Clear any existing audio
     clearAudioSources();
 
-    // Create fresh rails — add ambient/SFX rails if tracks of those types exist
+    // Create fresh rails — add ambient/SFX/dialogue rails if tracks of those types exist
     const hasAmbient = designResult.tracks.some(t => t.type === 'ambient');
     const hasSfx = designResult.tracks.some(t => t.type === 'sfx');
-    createAudioRails(hasAmbient, hasSfx);
+    const hasDialogue = designResult.tracks.some(t => t.type === 'dialogue');
+    createAudioRails(hasAmbient, hasSfx, hasDialogue);
+
+    // Pre-assign dialogue tracks to one of two rails using simple overlap-aware packing.
+    dialogueTrackRailMap.value.clear();
+    dialogueSpeakerRailMap.value.clear();
+    if (hasDialogue && dialogueRailIds.length === 2) {
+      const speakerLaneIndexMap = new Map<string, number>();
+      const dialogueTracks = designResult.tracks
+        .filter(t => t.type === 'dialogue' && !t.skip)
+        .sort((a, b) => a.startTimeSec - b.startTimeSec);
+
+      for (const track of dialogueTracks) {
+        const speakerKey = track.speakerLabel?.trim() || '__unknown_speaker__';
+        if (!speakerLaneIndexMap.has(speakerKey)) {
+          speakerLaneIndexMap.set(speakerKey, speakerLaneIndexMap.size % dialogueRailIds.length);
+        }
+        const preferredRailId = dialogueRailIds[speakerLaneIndexMap.get(speakerKey)!];
+        dialogueSpeakerRailMap.value.set(speakerKey, preferredRailId);
+
+        const assignedRailId = chooseDialogueRail(track, preferredRailId);
+        dialogueTrackRailMap.value.set(track.id, assignedRailId);
+      }
+    }
 
     // Download and push each track in parallel
     const pushPromises: Promise<void>[] = [];
@@ -238,6 +315,9 @@ export function useAiPipeline() {
       let railId: string;
       if (track.type === 'ambient') railId = ambientRailId;
       else if (track.type === 'sfx') railId = sfxRailId;
+      else if (track.type === 'dialogue') {
+        railId = dialogueTrackRailMap.value.get(track.id) ?? dialogueRailIds[0];
+      }
       else railId = musicRailId;
 
       pushPromises.push(
@@ -325,9 +405,11 @@ export function useAiPipeline() {
         const addedMusic = finalResult.tracks.filter(t => t.type === 'music' && !t.skip).length;
         const addedAmbient = finalResult.tracks.filter(t => t.type === 'ambient').length;
         const addedSfx = finalResult.tracks.filter(t => t.type === 'sfx').length;
+        const addedDialogue = finalResult.tracks.filter(t => t.type === 'dialogue' && !t.skip).length;
         const msgParts: string[] = [`${addedMusic} music`];
         if (addedAmbient > 0) msgParts.push(`${addedAmbient} ambient`);
         if (addedSfx > 0) msgParts.push(`${addedSfx} SFX`);
+        if (addedDialogue > 0) msgParts.push(`${addedDialogue} dialogue`);
         let msg = `Done! Added ${msgParts.join(' + ')} tracks.`;
 
         const report = finalResult.generationReport;
@@ -478,7 +560,11 @@ export function useAiPipeline() {
     let railId: string;
     if (track.type === 'ambient') railId = ambientRailId;
     else if (track.type === 'sfx') railId = sfxRailId;
-    else railId = musicRailId;
+    else if (track.type === 'dialogue') {
+      const sourceKey = trackSourceMap.value.get(trackId);
+      const source = sourceKey ? sources.value.get(sourceKey) : null;
+      railId = source?.railId ?? dialogueTrackRailMap.value.get(trackId) ?? dialogueRailIds[0];
+    } else railId = musicRailId;
 
     // Remove old source from timeline
     if (oldSourceKey) {
@@ -535,7 +621,7 @@ export function useAiPipeline() {
     if (!result.value || !jobId.value) return;
 
     const track = result.value.tracks.find(t => t.id === trackId);
-    if (!track || track.type === 'music') return;
+    if (!track || track.type === 'music' || track.type === 'dialogue') return;
 
     // Determine rail early so we can clean segments after remove
     let railId: string;
@@ -597,6 +683,79 @@ export function useAiPipeline() {
     }
   }
 
+  /**
+   * Regenerate a single dialogue track with new text/emotion via the server.
+   */
+  async function regenerateDialogueLine(
+    trackId: string,
+    newText: string,
+    emotion?: string,
+    voiceId?: string,
+  ) {
+    if (!result.value || !jobId.value) return;
+
+    const track = result.value.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'dialogue') return;
+
+    regeneratingTrackId.value = trackId;
+    try {
+      const { actualDurationSec, text } = await regenerateDialogue({
+        jobId: jobId.value,
+        trackId,
+        text: newText,
+        speakerLabel: track.speakerLabel,
+        emotion,
+        voiceId,
+      });
+
+      // Capture current state before removing
+      const oldSourceKey = trackSourceMap.value.get(trackId);
+      const oldSource = oldSourceKey ? sources.value.get(oldSourceKey) : null;
+      const savedVolume = oldSource?.meta.audio?.volume ?? track.volume;
+
+      // Remove old source from timeline
+      const oldDialogueRailId = oldSource?.railId ?? dialogueTrackRailMap.value.get(trackId) ?? dialogueRailIds[0];
+      if (oldSourceKey) {
+        remove(oldSourceKey);
+        trackSourceMap.value.delete(trackId);
+        const rail = rails.value.find(r => r.id === oldDialogueRailId);
+        if (rail) {
+          const idx = rail.segments.findIndex(s => s.sourceKey === oldSourceKey);
+          if (idx !== -1) rail.segments.splice(idx, 1);
+        }
+      }
+
+      // Update track metadata
+      track.actualDurationSec = actualDurationSec;
+      track.requestedDurationSec = actualDurationSec;
+      track.text = text;
+      if (emotion) track.emotion = emotion;
+      track.label = `${track.speakerLabel ?? 'Speaker'}: ${text.slice(0, 40)}`;
+      track.volume = savedVolume;
+
+      const speakerKey = track.speakerLabel?.trim() || '__unknown_speaker__';
+      const preferredRailId =
+        dialogueTrackRailMap.value.get(track.id) ||
+        dialogueSpeakerRailMap.value.get(speakerKey) ||
+        oldDialogueRailId;
+      const targetDialogueRailId = chooseDialogueRail(track, preferredRailId);
+      dialogueSpeakerRailMap.value.set(speakerKey, targetDialogueRailId);
+      dialogueTrackRailMap.value.set(track.id, targetDialogueRailId);
+      await downloadAndPushAudio(jobId.value, track, targetDialogueRailId);
+
+      // Re-select on timeline
+      const newSourceKey = trackSourceMap.value.get(trackId);
+      if (newSourceKey) {
+        const newSource = sources.value.get(newSourceKey);
+        if (newSource?.segmentId) {
+          context.selectSegment(newSource.segmentId, newSource.railId);
+        }
+      }
+    } finally {
+      regeneratingTrackId.value = null;
+    }
+  }
+
   return {
     isProcessing,
     progress,
@@ -625,5 +784,6 @@ export function useAiPipeline() {
     extendTrack,
     selectTrackOnTimeline,
     regenerateTrack,
+    regenerateDialogueLine,
   };
 }

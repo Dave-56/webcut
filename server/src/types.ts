@@ -92,11 +92,37 @@ export interface SoundDesignPlan {
   global_music_style: string;
 }
 
+// ─── Pass 3: Dialogue Plan ───
+
+export type SpeakerGender = 'male' | 'female' | 'neutral';
+
+export interface SpeakerMeta {
+  label: string;           // e.g. "speaker_1", "narrator"
+  name: string;            // e.g. "Detective Morris", "Narrator"
+  gender: SpeakerGender;
+  vocalQuality: string;    // e.g. "deep and authoritative", "warm and gentle"
+  voiceId?: string;        // assigned ElevenLabs voice ID
+}
+
+export interface DialogueLine {
+  startTime: number;       // seconds
+  endTime: number;
+  speakerLabel: string;    // matches SpeakerMeta.label
+  text: string;
+  emotion: string;         // neutral, calm, excited, angry, sad, whispering
+  voiceId?: string;        // resolved from SpeakerMeta
+}
+
+export interface DialoguePlan {
+  speakers: SpeakerMeta[];
+  lines: DialogueLine[];
+}
+
 // ─── Generated Output ───
 
 export interface GeneratedTrack {
   id: string;
-  type: 'music' | 'ambient' | 'sfx';
+  type: 'music' | 'ambient' | 'sfx' | 'dialogue';
   filePath: string;
   startTimeSec: number;
   actualDurationSec: number;
@@ -109,6 +135,9 @@ export interface GeneratedTrack {
   skip?: boolean;
   prompt?: string;
   originalPrompt?: string;
+  speakerLabel?: string;
+  text?: string;
+  emotion?: string;
 }
 
 /** Exact params sent to ElevenLabs for an SFX call (for audit in 10_generation_results.json). */
@@ -121,7 +150,7 @@ export interface SfxApiSent {
 
 export interface TrackGenerationResult {
   planned: {
-    type: 'music' | 'ambient' | 'sfx';
+    type: 'music' | 'ambient' | 'sfx' | 'dialogue';
     prompt: string;
     originalPrompt?: string;
     startTimeSec: number;
@@ -147,18 +176,20 @@ export interface GenerationReport {
   music: { results: TrackGenerationResult[]; stats: GenerationStats };
   ambient: { results: TrackGenerationResult[]; stats: GenerationStats };
   sfx: { results: TrackGenerationResult[]; stats: GenerationStats };
+  dialogue?: { results: TrackGenerationResult[]; stats: GenerationStats };
 }
 
 export interface SoundDesignResult {
   storyAnalysis: StoryAnalysis;
   globalSonicContext?: GlobalSonicContext;
   soundDesignPlan: SoundDesignPlan;
+  dialoguePlan?: DialoguePlan;
   tracks: GeneratedTrack[];
   generationReport?: GenerationReport;
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'optimizing_prompts' | 'generating' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'planning_dialogue' | 'optimizing_prompts' | 'generating' | 'generating_dialogue' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;

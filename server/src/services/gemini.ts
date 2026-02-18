@@ -1,8 +1,8 @@
 import { GoogleAIFileManager } from '@google/generative-ai/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
-import { StoryAnalysis, SoundDesignPlan, ActionSpotting, GlobalSonicContext } from '../types.js';
-import { StoryAnalysisSchema, SoundDesignPlanSchema, ActionSpottingSchema, GlobalSonicContextSchema } from '../schemas.js';
+import { StoryAnalysis, SoundDesignPlan, ActionSpotting, GlobalSonicContext, DialoguePlan, SoundDesignScene } from '../types.js';
+import { StoryAnalysisSchema, SoundDesignPlanSchema, ActionSpottingSchema, GlobalSonicContextSchema, DialoguePlanSchema } from '../schemas.js';
 
 export const MODEL = 'gemini-3-pro-preview';
 
@@ -621,4 +621,128 @@ export async function createSoundDesignPlan(
   }
 
   return { data: parsed.data, rawResponse, promptSent: prompt };
+}
+
+// ─── Pass 3: Dialogue Planning (multimodal — video + story + scenes) ───
+
+export interface DialoguePlanResult {
+  data: DialoguePlan;
+  rawResponse: string;
+  promptSent: string;
+}
+
+function buildDialoguePrompt(
+  storyAnalysis: StoryAnalysis,
+  scenes: SoundDesignScene[],
+  sonicContext?: GlobalSonicContext,
+  userScript?: string,
+): string {
+  const sonicBlock = sonicContext ? `
+SONIC CONTEXT:
+- Environment: ${sonicContext.environment_type} — ${sonicContext.primary_location}
+- Scale: ${sonicContext.scale}
+- Era: ${sonicContext.era}
+- Perspective: ${sonicContext.perspective}
+` : '';
+
+  const existingSpeechBlock = storyAnalysis.speechSegments.length > 0
+    ? `\nEXISTING SPEECH IN VIDEO (do NOT place dialogue over these time ranges):
+${JSON.stringify(storyAnalysis.speechSegments, null, 2)}`
+    : '\nNo existing speech detected in the video.';
+
+  const scriptBlock = userScript
+    ? `\nUSER-PROVIDED SCRIPT (use this as the dialogue content — match lines to appropriate story beats and assign timing):
+${userScript}`
+    : '\nNo script provided. Write original dialogue/narration that enhances the story.';
+
+  return `You are a dialogue writer and voice director creating narration or character dialogue for this video. Watch the video and use the story analysis and scene breakdown below to plan dialogue lines.
+
+STORY ANALYSIS:
+${JSON.stringify(storyAnalysis, null, 2)}
+
+SCENE BREAKDOWN:
+${JSON.stringify(scenes, null, 2)}
+${sonicBlock}${existingSpeechBlock}${scriptBlock}
+
+Return a JSON object with this exact structure:
+{
+  "speakers": [
+    {
+      "label": "<unique speaker ID, e.g. 'narrator', 'speaker_1'>",
+      "name": "<character name or role, e.g. 'Detective Morris', 'Narrator'>",
+      "gender": "<male|female|neutral>",
+      "vocalQuality": "<brief description of ideal voice, e.g. 'deep and authoritative', 'warm and gentle', 'young and energetic'>"
+    }
+  ],
+  "lines": [
+    {
+      "startTime": <seconds — when this line should begin>,
+      "endTime": <seconds — when this line should end>,
+      "speakerLabel": "<matches a speaker label from the speakers array>",
+      "text": "<the dialogue text to be spoken>",
+      "emotion": "<neutral|calm|excited|angry|sad|whispering>"
+    }
+  ]
+}
+
+CRITICAL DIALOGUE RULES:
+- Lines must NOT overlap with each other
+- Lines must NOT be placed over existing speech segments listed above
+- Leave at least 0.5 seconds gap between consecutive lines
+- Write CONCISE, impactful lines — short sentences that land with purpose
+- Each line should be brief enough that natural speech delivery finishes comfortably within the time window (do NOT pack lines with too many words)
+- Less is more — a few well-placed lines beat wall-to-wall narration
+- Match the emotional tone of each line to the story beat it accompanies
+- For narration: use present tense, evocative language, match the genre tone
+- For character dialogue: keep it natural, match the character's personality
+- Minimum gap from video start: 1 second (don't start immediately)
+- Every speaker in "lines" must have a corresponding entry in "speakers"
+- Return ONLY the JSON object, no markdown code blocks`;
+}
+
+export async function planDialogue(
+  videoFileRef: FileRef,
+  storyAnalysis: StoryAnalysis,
+  scenes: SoundDesignScene[],
+  apiKey: string,
+  signal?: AbortSignal,
+  sonicContext?: GlobalSonicContext,
+  userScript?: string,
+): Promise<DialoguePlanResult> {
+  if (signal?.aborted) throw new Error('Aborted');
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: MODEL,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.6,
+    },
+  });
+
+  const promptText = buildDialoguePrompt(storyAnalysis, scenes, sonicContext, userScript);
+  const parts: any[] = [videoFileRef, { text: promptText }];
+
+  const result = await withGeminiRetry(() => model.generateContent(parts));
+  const rawResponse = result.response.text();
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(rawResponse);
+  } catch {
+    const jsonMatch = rawResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      raw = JSON.parse(jsonMatch[1].trim());
+    } else {
+      throw new Error(`Failed to parse dialogue plan JSON: ${rawResponse.slice(0, 200)}`);
+    }
+  }
+
+  const parsed = DialoguePlanSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn('Dialogue plan validation warnings:', parsed.error.issues);
+    return { data: DialoguePlanSchema.parse(raw), rawResponse, promptSent: promptText };
+  }
+
+  return { data: parsed.data, rawResponse, promptSent: promptText };
 }

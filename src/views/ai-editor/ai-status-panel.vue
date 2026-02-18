@@ -41,15 +41,17 @@ const emit = defineEmits<{
   (e: 'shortenTrack', trackId: string, durationSec: number): void;
   (e: 'extendTrack', trackId: string, durationSec: number): void;
   (e: 'regenerateTrack', trackId: string, prompt: string): void;
+  (e: 'regenerateDialogueLine', trackId: string, text: string, emotion: string): void;
   (e: 'selectTrack', trackId: string): void;
 }>();
 
 // Panel view mode
-type PanelView = 'summary' | 'sfx-edit' | 'music-readonly';
+type PanelView = 'summary' | 'sfx-edit' | 'music-readonly' | 'dialogue-edit';
 const panelView = computed<PanelView>(() => {
   const track = props.selectedAiTrack;
   if (!track) return 'summary';
   if (track.type === 'music') return 'music-readonly';
+  if (track.type === 'dialogue') return 'dialogue-edit';
   return 'sfx-edit';
 });
 
@@ -63,8 +65,19 @@ const selectedTrackBaseDuration = computed(() => {
 // Prompt editing
 const editedPrompt = ref('');
 
+// Dialogue editing state
+const editedDialogueText = ref('');
+const editedDialogueEmotion = ref('neutral');
+const EMOTION_OPTIONS = ['neutral', 'calm', 'excited', 'angry', 'sad', 'whispering'];
+
 watch(() => props.selectedAiTrack, (track) => {
   if (!track || track.type === 'music') { editedPrompt.value = ''; return; }
+  if (track.type === 'dialogue') {
+    editedDialogueText.value = track.text || '';
+    editedDialogueEmotion.value = track.emotion || 'neutral';
+    editedPrompt.value = '';
+    return;
+  }
   editedPrompt.value = track.prompt || track.originalPrompt || track.label.replace(/^(SFX|Ambient):\s*/i, '');
 });
 
@@ -95,8 +108,10 @@ const stageLabel = computed(() => {
     analyzing_story: 'Analyzing Story',
     analyzing_sonic_context: 'Calibrating Sound',
     analyzing_sound_design: 'Planning Sound Design',
+    planning_dialogue: 'Planning Dialogue',
     optimizing_prompts: 'Optimizing Prompts',
     generating: 'Generating Audio',
+    generating_dialogue: 'Generating Dialogue',
     populating: 'Building Timeline',
     complete: 'Complete',
     error: 'Error',
@@ -119,6 +134,7 @@ const trackSummary = computed(() => {
     music: tracks.filter(t => t.type === 'music' && !t.skip).length,
     ambient: tracks.filter(t => t.type === 'ambient').length,
     sfx: tracks.filter(t => t.type === 'sfx').length,
+    dialogue: tracks.filter(t => t.type === 'dialogue' && !t.skip).length,
     skipped: tracks.filter(t => t.skip).length,
     total: tracks.length,
   };
@@ -153,7 +169,7 @@ const generationHealth = computed(() => {
   const r = props.result.generationReport;
   return {
     totalFallback: r.sfx.stats.fallback + r.ambient.stats.fallback + r.music.stats.fallback,
-    totalFailed: r.sfx.stats.failed + r.ambient.stats.failed + r.music.stats.failed,
+    totalFailed: r.sfx.stats.failed + r.ambient.stats.failed + r.music.stats.failed + (r.dialogue?.stats.failed ?? 0),
   };
 });
 
@@ -179,6 +195,7 @@ function trackBadgeVariant(track: GeneratedTrack) {
   if (track.skip) return 'secondary' as const;
   if (track.type === 'sfx') return 'info' as const;
   if (track.type === 'ambient') return 'warning' as const;
+  if (track.type === 'dialogue') return 'destructive' as const;
   return 'success' as const;
 }
 </script>
@@ -287,6 +304,7 @@ function trackBadgeVariant(track: GeneratedTrack) {
               <Badge variant="success">{{ trackSummary.music }} music</Badge>
               <Badge v-if="trackSummary.ambient > 0" variant="warning">{{ trackSummary.ambient }} ambient</Badge>
               <Badge v-if="trackSummary.sfx > 0" variant="info">{{ trackSummary.sfx }} SFX</Badge>
+              <Badge v-if="trackSummary.dialogue > 0" variant="destructive">{{ trackSummary.dialogue }} dialogue</Badge>
               <Badge v-if="trackSummary.skipped > 0" variant="secondary">{{ trackSummary.skipped }} silent</Badge>
             </div>
 
@@ -441,6 +459,68 @@ function trackBadgeVariant(track: GeneratedTrack) {
                 @click="emit('regenerateTrack', selectedAiTrack.id, editedPrompt.trim())"
               >
                 Regenerate
+              </Button>
+            </div>
+          </template>
+
+          <!-- DIALOGUE EDIT CARD -->
+          <template v-else-if="panelView === 'dialogue-edit' && selectedAiTrack">
+            <div class="flex items-center gap-2">
+              <Badge variant="destructive">dialogue</Badge>
+              <span class="text-[13px] font-medium text-foreground truncate">{{ selectedAiTrack.label }}</span>
+            </div>
+
+            <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span>{{ formatTimeRange(selectedAiTrack.startTimeSec, selectedAiTrack.requestedDurationSec) }}</span>
+              <span v-if="selectedAiTrack.speakerLabel" class="font-medium">{{ selectedAiTrack.speakerLabel }}</span>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-medium text-muted-foreground">Volume</span>
+                <span class="text-[11px] text-muted-foreground tabular-nums">{{ volumePercent }}%</span>
+              </div>
+              <input
+                type="range"
+                v-model.number="trackVolume"
+                min="0"
+                max="2"
+                step="0.01"
+                class="w-full h-1.5 accent-primary cursor-pointer"
+              />
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-muted-foreground">Emotion</span>
+              <div class="flex flex-wrap gap-1">
+                <button
+                  v-for="emo in EMOTION_OPTIONS"
+                  :key="emo"
+                  class="px-2 py-0.5 text-[11px] rounded-md border cursor-pointer transition-colors bg-transparent"
+                  :class="editedDialogueEmotion === emo
+                    ? 'border-primary bg-primary/10 text-foreground font-medium'
+                    : 'border-border text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground'"
+                  @click="editedDialogueEmotion = emo"
+                >
+                  {{ emo }}
+                </button>
+              </div>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-medium text-muted-foreground">Text</span>
+              <Textarea
+                v-model="editedDialogueText"
+                class="min-h-[60px] text-sm"
+                placeholder="Enter dialogue text..."
+              />
+              <Button
+                size="sm"
+                :disabled="!editedDialogueText.trim() || regeneratingTrackId === selectedAiTrack.id"
+                :loading="regeneratingTrackId === selectedAiTrack.id"
+                @click="emit('regenerateDialogueLine', selectedAiTrack.id, editedDialogueText.trim(), editedDialogueEmotion)"
+              >
+                Regenerate Line
               </Button>
             </div>
           </template>

@@ -8,6 +8,7 @@ import statusRouter from './routes/status.js';
 import audioRouter from './routes/audio.js';
 import cancelRouter from './routes/cancel.js';
 import regenerateSfxRouter from './routes/regenerate-sfx.js';
+import regenerateDialogueRouter from './routes/regenerate-dialogue.js';
 
 // Verify ffmpeg is available
 try {
@@ -38,6 +39,7 @@ app.use('/api/status', statusRouter);
 app.use('/api/audio', audioRouter);
 app.use('/api/cancel', cancelRouter);
 app.use('/api/regenerate-sfx', regenerateSfxRouter);
+app.use('/api/regenerate-dialogue', regenerateDialogueRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

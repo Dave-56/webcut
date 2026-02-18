@@ -93,3 +93,29 @@ export const SoundDesignPlanSchema = z.object({
   full_video_music_prompt: z.string().default(''),
   global_music_style: z.string().default('cinematic'),
 });
+
+// ─── Pass 3: Dialogue Plan Schema ───
+
+const SpeakerGenderSchema = z.enum(['male', 'female', 'neutral']).default('neutral');
+
+const SpeakerMetaSchema = z.object({
+  label: z.string(),
+  name: z.string().default('Speaker'),
+  gender: SpeakerGenderSchema,
+  vocalQuality: z.string().default('neutral'),
+  voiceId: z.string().optional(),
+});
+
+const DialogueLineSchema = z.object({
+  startTime: z.number(),
+  endTime: z.number(),
+  speakerLabel: z.string(),
+  text: z.string().default(''),
+  emotion: z.string().default('neutral'),
+  voiceId: z.string().optional(),
+});
+
+export const DialoguePlanSchema = z.object({
+  speakers: z.array(SpeakerMetaSchema).default([]),
+  lines: z.array(DialogueLineSchema).default([]),
+});

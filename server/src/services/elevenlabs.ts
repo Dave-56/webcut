@@ -2,6 +2,7 @@ import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import fs from 'fs';
 import path from 'path';
 import { getAudioDuration } from './video-utils.js';
+import type { SpeakerMeta, SpeakerGender } from '../types.js';
 
 let client: ElevenLabsClient | null = null;
 
@@ -12,15 +13,61 @@ function getClient(apiKey: string): ElevenLabsClient {
   return client;
 }
 
-// Default voices for dubbing (speaker label → voice ID mapping)
-const SPEAKER_VOICES: Record<string, string> = {
-  speaker_1: 'JBFqnCBsd6RMkjVDRZzb',  // George
-  speaker_2: 'EXAVITQu4vr4xnSDxMaL',  // Sarah
-  speaker_3: 'onwK4e9ZLuTAKqWW03F9',  // Daniel
-  speaker_4: 'XB0fDUnXU5powFXDhCwa',  // Charlotte
+// Gender-indexed voice pool for deterministic assignment
+const VOICES_BY_GENDER: Record<SpeakerGender, { id: string; name: string }[]> = {
+  male: [
+    { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George' },
+    { id: 'onwK4e9ZLuTAKqWW03F9', name: 'Daniel' },
+  ],
+  female: [
+    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah' },
+    { id: 'XB0fDUnXU5powFXDhCwa', name: 'Charlotte' },
+  ],
+  neutral: [
+    { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George' },
+    { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah' },
+  ],
 };
 
 const DEFAULT_VOICE = 'JBFqnCBsd6RMkjVDRZzb';
+
+// Legacy mapping kept for backward compatibility
+const SPEAKER_VOICES: Record<string, string> = {
+  speaker_1: 'JBFqnCBsd6RMkjVDRZzb',
+  speaker_2: 'EXAVITQu4vr4xnSDxMaL',
+  speaker_3: 'onwK4e9ZLuTAKqWW03F9',
+  speaker_4: 'XB0fDUnXU5powFXDhCwa',
+};
+
+/**
+ * Deterministically assign ElevenLabs voice IDs to speakers based on gender.
+ * Speakers are sorted alphabetically by label for consistency across runs.
+ * Mutates speakers in-place and returns them.
+ */
+export function assignVoices(speakers: SpeakerMeta[]): SpeakerMeta[] {
+  const sorted = [...speakers].sort((a, b) => a.label.localeCompare(b.label));
+  const usedByGender: Record<string, number> = { male: 0, female: 0, neutral: 0 };
+
+  for (const speaker of sorted) {
+    const gender = speaker.gender || 'neutral';
+    const pool = VOICES_BY_GENDER[gender] || VOICES_BY_GENDER.neutral;
+    const index = usedByGender[gender] % pool.length;
+    speaker.voiceId = pool[index].id;
+    usedByGender[gender]++;
+  }
+
+  // Apply back to the original array (sorted was a copy for ordering)
+  for (const speaker of speakers) {
+    const match = sorted.find(s => s.label === speaker.label);
+    if (match) speaker.voiceId = match.voiceId;
+  }
+
+  return speakers;
+}
+
+/** v3 stability: 0.0 = Creative (varied), 0.5 = Natural, 1.0 = Robust (consistent).
+ *  We default to Creative for maximum expressiveness from Audio Tags. */
+const TTS_STABILITY = 0.0;
 
 /** Retry with exponential backoff for API rate limits and transient errors */
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<{ result: T; attempts: number }> {
@@ -221,6 +268,8 @@ export async function generateSoundEffectWithFallback(
 
 /**
  * Generate dubbed speech using ElevenLabs TTS.
+ * Supports emotion via stability tuning and text-prefix hints.
+ * voiceId override takes precedence over speakerLabel lookup.
  */
 export async function generateDubbedSpeech(
   text: string,
@@ -229,22 +278,34 @@ export async function generateDubbedSpeech(
   targetDurationSec: number,
   outputPath: string,
   apiKey: string,
-): Promise<{ actualDurationSec: number }> {
+  emotion?: string,
+  voiceId?: string,
+): Promise<{ actualDurationSec: number; voiceId: string }> {
   const elevenLabs = getClient(apiKey);
-  const voiceId = SPEAKER_VOICES[speakerLabel] || DEFAULT_VOICE;
+  const resolvedVoiceId = voiceId || SPEAKER_VOICES[speakerLabel] || DEFAULT_VOICE;
 
-  const modelId = 'eleven_turbo_v2_5'; // Multilingual model
+  const modelId = 'eleven_v3';
+
+  const stability = TTS_STABILITY;
+
+  // Embed emotion hint in text for better delivery
+  const ttsText = emotion && emotion !== 'neutral'
+    ? `[${emotion}] ${text}`
+    : text;
 
   const { result: audio } = await withRetry(() =>
-    elevenLabs.textToSpeech.convert(voiceId, {
-      text,
+    elevenLabs.textToSpeech.convert(resolvedVoiceId, {
+      text: ttsText,
       modelId,
       outputFormat: 'mp3_44100_128',
+      voiceSettings: {
+        stability,
+      },
     }),
   );
 
   await saveStreamToFile(audio, outputPath);
   const actualDuration = await getAudioDuration(outputPath);
 
-  return { actualDurationSec: actualDuration };
+  return { actualDurationSec: actualDuration, voiceId: resolvedVoiceId };
 }

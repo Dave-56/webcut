@@ -67,11 +67,37 @@ export interface SoundDesignPlan {
   global_music_style: string;
 }
 
+// ─── Pass 3: Dialogue Plan ───
+
+export type SpeakerGender = 'male' | 'female' | 'neutral';
+
+export interface SpeakerMeta {
+  label: string;
+  name: string;
+  gender: SpeakerGender;
+  vocalQuality: string;
+  voiceId?: string;
+}
+
+export interface DialogueLine {
+  startTime: number;
+  endTime: number;
+  speakerLabel: string;
+  text: string;
+  emotion: string;
+  voiceId?: string;
+}
+
+export interface DialoguePlan {
+  speakers: SpeakerMeta[];
+  lines: DialogueLine[];
+}
+
 // ─── Generated Output ───
 
 export interface GeneratedTrack {
   id: string;
-  type: 'music' | 'ambient' | 'sfx';
+  type: 'music' | 'ambient' | 'sfx' | 'dialogue';
   filePath: string;
   startTimeSec: number;
   actualDurationSec: number;
@@ -84,6 +110,9 @@ export interface GeneratedTrack {
   skip?: boolean;
   prompt?: string;
   originalPrompt?: string;
+  speakerLabel?: string;
+  text?: string;
+  emotion?: string;
 }
 
 export interface GenerationStats {
@@ -97,17 +126,19 @@ export interface GenerationReport {
   music: { stats: GenerationStats };
   ambient: { stats: GenerationStats };
   sfx: { stats: GenerationStats };
+  dialogue?: { stats: GenerationStats };
 }
 
 export interface SoundDesignResult {
   storyAnalysis: StoryAnalysis;
   soundDesignPlan: SoundDesignPlan;
+  dialoguePlan?: DialoguePlan;
   tracks: GeneratedTrack[];
   generationReport?: GenerationReport;
 }
 
 export interface JobProgress {
-  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'optimizing_prompts' | 'generating' | 'complete' | 'error' | 'cancelled';
+  stage: 'uploading' | 'uploading_to_gemini' | 'analyzing_story' | 'analyzing_sonic_context' | 'analyzing_sound_design' | 'planning_dialogue' | 'optimizing_prompts' | 'generating' | 'generating_dialogue' | 'complete' | 'error' | 'cancelled';
   progress: number;
   message: string;
   result?: SoundDesignResult;
@@ -122,6 +153,8 @@ export interface AnalysisOptions {
   useExistingAudio?: boolean;
   includeSfx?: boolean;
   contentType?: ContentType;
+  includeDialogue?: boolean;
+  dialogueScript?: string;
 }
 
 export interface AnalyzeResponse {
@@ -144,6 +177,8 @@ export async function analyzeVideo(
   if (options?.useExistingAudio) formData.append('useExistingAudio', 'true');
   if (options?.includeSfx === false) formData.append('includeSfx', 'false');
   if (options?.contentType) formData.append('contentType', options.contentType);
+  if (options?.includeDialogue) formData.append('includeDialogue', 'true');
+  if (options?.dialogueScript) formData.append('dialogueScript', options.dialogueScript);
 
   const res = await fetch(`${API_BASE}/analyze`, {
     method: 'POST',
@@ -233,6 +268,29 @@ export async function regenerateSfx(req: {
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(data.error || `Regeneration failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Regenerate a single dialogue track with new text/emotion.
+ */
+export async function regenerateDialogue(req: {
+  jobId: string;
+  trackId: string;
+  text: string;
+  speakerLabel?: string;
+  emotion?: string;
+  voiceId?: string;
+}): Promise<{ trackId: string; actualDurationSec: number; text: string }> {
+  const res = await fetch(`${API_BASE}/regenerate-dialogue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(data.error || `Dialogue regeneration failed: ${res.status}`);
   }
   return res.json();
 }

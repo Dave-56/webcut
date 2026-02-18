@@ -2,10 +2,10 @@ import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import { v4 as uuid } from 'uuid';
-import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, LoudnessClass, TrackGenerationResult, GenerationStats, GenerationReport, ActionSpotting, GlobalSonicContext } from '../types.js';
-import { uploadVideoFile, analyzeStory, createGlobalSonicContext, spotActions, createSoundDesignPlan, MODEL } from './gemini.js';
-import { generateMusic, generateSoundEffectWithFallback } from './elevenlabs.js';
-import { normalizeAudio, LOUDNORM_TARGETS, TRUE_PEAK_DBTP } from './video-utils.js';
+import { GeneratedTrack, SoundDesignResult, JobProgress, SoundDesignScene, MusicMixLevel, LoudnessClass, TrackGenerationResult, GenerationStats, GenerationReport, ActionSpotting, GlobalSonicContext, DialoguePlan, DialogueLine } from '../types.js';
+import { uploadVideoFile, analyzeStory, createGlobalSonicContext, spotActions, createSoundDesignPlan, planDialogue, MODEL } from './gemini.js';
+import { generateMusic, generateSoundEffectWithFallback, generateDubbedSpeech, assignVoices } from './elevenlabs.js';
+import { normalizeAudio, LOUDNORM_TARGETS, TRUE_PEAK_DBTP, adjustAudioSpeed } from './video-utils.js';
 import { rewritePrompts, type RewriteItem } from './prompt-rewriter.js';
 import { addEvent } from './job-store.js';
 
@@ -14,6 +14,8 @@ interface PipelineConfig {
   videoPath: string;
   userIntent?: string;
   includeSfx?: boolean;
+  includeDialogue?: boolean;
+  dialogueScript?: string;
   contentType?: string;
   geminiApiKey: string;
   elevenLabsApiKey: string;
@@ -90,6 +92,30 @@ function getVolumeForTrack(
   const scene = scenes.find(s => startTimeSec >= s.startTime && startTimeSec < s.endTime);
   const level = scene?.music_level ?? 'medium';
   return MUSIC_LEVEL_TO_VOLUME[level];
+}
+
+/** Dialogue is always priority in the mix. Flat volume. */
+function getDialogueVolume(): number {
+  return 0.90;
+}
+
+/**
+ * Back-propagate dialogue flags to scenes after dialogue planning.
+ * Sets scene.dialogue = true AND caps music_level to 'low' for scenes
+ * that contain generated dialogue lines. This ensures ambient, SFX,
+ * AND music all duck correctly during dialogue.
+ */
+function backPropagateDialogueFlags(scenes: SoundDesignScene[], lines: DialogueLine[]): void {
+  for (const line of lines) {
+    for (const scene of scenes) {
+      if (line.startTime < scene.endTime && line.endTime > scene.startTime) {
+        scene.dialogue = true;
+        if (scene.music_level === 'medium' || scene.music_level === 'high') {
+          scene.music_level = 'low';
+        }
+      }
+    }
+  }
 }
 
 export async function runPipeline(config: PipelineConfig): Promise<void> {
@@ -254,6 +280,55 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       });
     }
 
+    // ─── Stage 3.25: Dialogue Planning (0.37–0.38) ───
+    let dialoguePlan: DialoguePlan | undefined;
+    if (config.includeDialogue) {
+      emit(jobId, {
+        stage: 'planning_dialogue',
+        progress: 0.37,
+        message: 'Planning dialogue lines...',
+      });
+
+      const dialogueResult = await planDialogue(
+        videoFileRef,
+        storyAnalysis,
+        soundDesignPlan.scenes,
+        geminiApiKey,
+        signal,
+        globalSonicContext,
+        config.dialogueScript,
+      );
+      dialoguePlan = dialogueResult.data;
+
+      // Assign voices to speakers (deterministic, gender-based)
+      if (dialoguePlan.speakers.length > 0) {
+        assignVoices(dialoguePlan.speakers);
+        // Propagate voice IDs to lines
+        for (const line of dialoguePlan.lines) {
+          const speaker = dialoguePlan.speakers.find(s => s.label === line.speakerLabel);
+          if (speaker?.voiceId) {
+            line.voiceId = speaker.voiceId;
+          }
+        }
+      }
+
+      checkAborted(signal);
+
+      writeDebug('9c_dialogue_plan.json', JSON.stringify(dialoguePlan, null, 2));
+
+      emit(jobId, {
+        stage: 'planning_dialogue',
+        progress: 0.38,
+        message: `Dialogue plan: ${dialoguePlan.lines.length} lines, ${dialoguePlan.speakers.length} speakers`,
+      });
+
+      // ─── Stage 3.3: Back-propagate dialogue flags + music_level ───
+      if (dialoguePlan.lines.length > 0) {
+        backPropagateDialogueFlags(soundDesignPlan.scenes, dialoguePlan.lines);
+        writeDebug('9d_updated_scenes.json', JSON.stringify(soundDesignPlan.scenes, null, 2));
+      }
+    }
+
     // ─── Stage 3.5: Optimize prompts for ElevenLabs (0.37–0.39) ───
     const hasSfx = config.includeSfx !== false && actionSpotting.actions.length > 0;
     const hasAmbient = (soundDesignPlan.ambient_segments?.length ?? 0) > 0;
@@ -338,12 +413,14 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     const musicResults: TrackGenerationResult[] = [];
     const ambientResults: TrackGenerationResult[] = [];
     const sfxResults: TrackGenerationResult[] = [];
+    const dialogueResults: TrackGenerationResult[] = [];
 
     // Per-track progress tracking
     const sfxGenerationCount = sfxSegments.length;
     const ambientGenerationCount = ambientSegments.length;
     const multiSegmentMusicCount = soundDesignPlan.music_segments.filter(m => !m.skip).length;
-    let totalGenerations = multiSegmentMusicCount + ambientGenerationCount + sfxGenerationCount;
+    const dialogueGenerationCount = dialoguePlan?.lines.length ?? 0;
+    let totalGenerations = multiSegmentMusicCount + ambientGenerationCount + sfxGenerationCount + dialogueGenerationCount;
     let completedGenerations = 0;
 
     function emitGenerationProgress() {
@@ -527,11 +604,180 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       }
     }
 
+    // ── Dialogue generation ──
+    if (dialoguePlan && dialoguePlan.lines.length > 0) {
+      for (const line of dialoguePlan.lines) {
+        const trackId = uuid();
+        const filePath = path.join(audioDir, `dialogue_${trackId}.mp3`);
+        const duration = line.endTime - line.startTime;
+        const speakerMeta = dialoguePlan.speakers.find(s => s.label === line.speakerLabel);
+        const plannedInfo = {
+          type: 'dialogue' as const,
+          prompt: line.text,
+          startTimeSec: line.startTime,
+          durationSec: duration,
+        };
+
+        generationPromises.push(
+          generateDubbedSpeech(
+            line.text,
+            'en',
+            line.speakerLabel,
+            duration,
+            filePath,
+            elevenLabsApiKey,
+            line.emotion,
+            line.voiceId,
+          )
+            .then(({ actualDurationSec, voiceId: usedVoiceId }) => {
+              const track: GeneratedTrack = {
+                id: trackId,
+                type: 'dialogue',
+                filePath,
+                startTimeSec: line.startTime,
+                actualDurationSec,
+                requestedDurationSec: duration,
+                loop: false,
+                label: `${speakerMeta?.name ?? line.speakerLabel}: ${line.text.slice(0, 40)}`,
+                volume: getDialogueVolume(),
+                speakerLabel: line.speakerLabel,
+                text: line.text,
+                emotion: line.emotion,
+              };
+              tracks.push(track);
+              dialogueResults.push({
+                planned: plannedInfo,
+                status: 'success',
+                track,
+                retryCount: 0,
+              });
+              emitGenerationProgress();
+            })
+            .catch((err) => {
+              console.error(`Failed to generate dialogue for "${line.text.slice(0, 30)}":`, err.message);
+              dialogueResults.push({
+                planned: plannedInfo,
+                status: 'failed',
+                error: err.message,
+                retryCount: 3,
+              });
+              emitGenerationProgress();
+            }),
+        );
+      }
+    }
+
     await Promise.all(generationPromises);
 
     checkAborted(signal);
 
-    // ─── Stage 4.5: Normalize audio loudness (EBU R128) ───
+    // ─── Stage 4.5a: Dialogue Timing Reconciliation ───
+    const dialogueTracks = tracks
+      .filter(t => t.type === 'dialogue' && t.filePath && !t.skip)
+      .sort((a, b) => a.startTimeSec - b.startTimeSec);
+
+    if (dialogueTracks.length > 0) {
+      const reconciliationLog: string[] = [];
+
+      for (let i = 0; i < dialogueTracks.length; i++) {
+        const track = dialogueTracks[i];
+        const requested = track.requestedDurationSec;
+        const actual = track.actualDurationSec;
+        const ratio = actual / requested;
+
+        if (ratio <= 1.15 && ratio >= 0.85) {
+          // Within 15%: accept, adjust end time
+          track.requestedDurationSec = actual;
+          reconciliationLog.push(`[ACCEPT] Track ${track.id}: ${actual.toFixed(2)}s vs ${requested.toFixed(2)}s (${((ratio - 1) * 100).toFixed(1)}%)`);
+        } else if (ratio > 1.15 && ratio <= 1.30) {
+          // 15-30% too long: speed up
+          const speedFactor = Math.min(ratio, 1.15);
+          try {
+            await adjustAudioSpeed(track.filePath, speedFactor);
+            const newDuration = actual / speedFactor;
+            track.actualDurationSec = newDuration;
+            track.requestedDurationSec = newDuration;
+            reconciliationLog.push(`[SPEED] Track ${track.id}: sped up ${speedFactor.toFixed(2)}x (${actual.toFixed(2)}s → ~${newDuration.toFixed(2)}s)`);
+          } catch (err: any) {
+            track.requestedDurationSec = actual;
+            reconciliationLog.push(`[SPEED-FAIL] Track ${track.id}: speed adjust failed (${err.message}), accepting actual duration`);
+          }
+        } else if (ratio < 0.85 && ratio >= 0.70) {
+          // 15-30% too short: slow down
+          const speedFactor = Math.max(ratio, 0.85);
+          try {
+            await adjustAudioSpeed(track.filePath, speedFactor);
+            const newDuration = actual / speedFactor;
+            track.actualDurationSec = newDuration;
+            track.requestedDurationSec = newDuration;
+            reconciliationLog.push(`[SPEED] Track ${track.id}: slowed ${speedFactor.toFixed(2)}x (${actual.toFixed(2)}s → ~${newDuration.toFixed(2)}s)`);
+          } catch (err: any) {
+            track.requestedDurationSec = actual;
+            reconciliationLog.push(`[SPEED-FAIL] Track ${track.id}: speed adjust failed (${err.message}), accepting actual duration`);
+          }
+        } else {
+          // >30% off: accept actual, shift subsequent if needed
+          track.requestedDurationSec = actual;
+          const overflow = actual - requested;
+          reconciliationLog.push(`[SHIFT] Track ${track.id}: ${actual.toFixed(2)}s vs ${requested.toFixed(2)}s (${((ratio - 1) * 100).toFixed(1)}%), overflow=${overflow.toFixed(2)}s`);
+
+          if (overflow > 0) {
+            // Shift subsequent dialogue tracks forward
+            for (let j = i + 1; j < dialogueTracks.length; j++) {
+              const next = dialogueTracks[j];
+              const newStart = next.startTimeSec + overflow;
+
+              // Scene-boundary cap: if shifting pushes into a different scene, drop the track
+              const originalScene = soundDesignPlan.scenes.find(s => next.startTimeSec >= s.startTime && next.startTimeSec < s.endTime);
+              const newScene = soundDesignPlan.scenes.find(s => newStart >= s.startTime && newStart < s.endTime);
+              if (originalScene && newScene && originalScene !== newScene) {
+                next.skip = true;
+                reconciliationLog.push(`[DROP] Track ${next.id}: shift would cross scene boundary, marking as failed`);
+                continue;
+              }
+
+              next.startTimeSec = newStart;
+              reconciliationLog.push(`[SHIFTED] Track ${next.id}: shifted forward by ${overflow.toFixed(2)}s to ${newStart.toFixed(2)}s`);
+            }
+          }
+        }
+      }
+
+      // Final overlap check with 200ms minimum gap
+      for (let i = 0; i < dialogueTracks.length - 1; i++) {
+        const current = dialogueTracks[i];
+        const next = dialogueTracks[i + 1];
+        if (current.skip || next.skip) continue;
+
+        const currentEnd = current.startTimeSec + current.requestedDurationSec;
+        const gap = next.startTimeSec - currentEnd;
+        if (gap < 0.2) {
+          const shift = 0.2 - gap;
+          const originalScene = soundDesignPlan.scenes.find(s => next.startTimeSec >= s.startTime && next.startTimeSec < s.endTime);
+          const newStart = next.startTimeSec + shift;
+          const newScene = soundDesignPlan.scenes.find(s => newStart >= s.startTime && newStart < s.endTime);
+          if (originalScene && newScene && originalScene !== newScene) {
+            next.skip = true;
+            reconciliationLog.push(`[DROP-OVERLAP] Track ${next.id}: gap fix would cross scene boundary`);
+          } else {
+            next.startTimeSec = newStart;
+            reconciliationLog.push(`[GAP] Track ${next.id}: shifted ${shift.toFixed(3)}s for 200ms minimum gap`);
+          }
+        }
+      }
+
+      writeDebug('9e_timing_reconciliation.json', JSON.stringify({
+        log: reconciliationLog,
+        tracks: dialogueTracks.map(t => ({
+          id: t.id, startTimeSec: t.startTimeSec,
+          actualDurationSec: t.actualDurationSec,
+          requestedDurationSec: t.requestedDurationSec,
+          skip: t.skip,
+        })),
+      }, null, 2));
+    }
+
+    // ─── Stage 4.5b: Normalize audio loudness (EBU R128) ───
     const tracksToNormalize = tracks.filter(t => t.filePath && !t.skip);
     if (tracksToNormalize.length > 0) {
       emit(jobId, {
@@ -562,7 +808,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
 
       writeDebug('10a_normalization.txt',
         `Normalized ${normalizeCount}/${tracksToNormalize.length} tracks ` +
-        `(music: ${LOUDNORM_TARGETS.music} LUFS, ambient: ${LOUDNORM_TARGETS.ambient} LUFS, sfx: ${LOUDNORM_TARGETS.sfx} LUFS, TP: ${TRUE_PEAK_DBTP} dBTP)`);
+        `(music: ${LOUDNORM_TARGETS.music} LUFS, ambient: ${LOUDNORM_TARGETS.ambient} LUFS, sfx: ${LOUDNORM_TARGETS.sfx} LUFS, dialogue: ${LOUDNORM_TARGETS.dialogue} LUFS, TP: ${TRUE_PEAK_DBTP} dBTP)`);
     }
 
     checkAborted(signal);
@@ -581,6 +827,7 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       music: { results: musicResults, stats: buildStats(musicResults) },
       ambient: { results: ambientResults, stats: buildStats(ambientResults) },
       sfx: { results: sfxResults, stats: buildStats(sfxResults) },
+      ...(dialogueResults.length > 0 ? { dialogue: { results: dialogueResults, stats: buildStats(dialogueResults) } } : {}),
     };
 
     writeDebug('10_generation_results.json', JSON.stringify(generationReport, null, 2));
@@ -588,9 +835,11 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     const musicCount = tracks.filter(t => t.type === 'music' && !t.skip).length;
     const ambientTrackCount = tracks.filter(t => t.type === 'ambient').length;
     const sfxTrackCount = tracks.filter(t => t.type === 'sfx').length;
+    const dialogueTrackCount = tracks.filter(t => t.type === 'dialogue' && !t.skip).length;
     const parts: string[] = [`${musicCount} music`];
     if (ambientTrackCount > 0) parts.push(`${ambientTrackCount} ambient`);
     if (sfxTrackCount > 0) parts.push(`${sfxTrackCount} SFX`);
+    if (dialogueTrackCount > 0) parts.push(`${dialogueTrackCount} dialogue`);
     emit(jobId, {
       stage: 'generating',
       progress: 0.95,
@@ -602,15 +851,18 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
       storyAnalysis,
       globalSonicContext,
       soundDesignPlan,
-      tracks: tracks.sort((a, b) => a.startTimeSec - b.startTimeSec),
+      ...(dialoguePlan ? { dialoguePlan } : {}),
+      tracks: tracks.filter(t => !t.skip || t.type !== 'dialogue').sort((a, b) => a.startTimeSec - b.startTimeSec),
       generationReport,
     };
 
     const finalMusicCount = tracks.filter(t => t.type === 'music' && !t.skip).length;
     const finalAmbientCount = tracks.filter(t => t.type === 'ambient').length;
     const finalSfxCount = tracks.filter(t => t.type === 'sfx').length;
+    const finalDialogueCount = tracks.filter(t => t.type === 'dialogue' && !t.skip).length;
     const sfxStats = generationReport.sfx.stats;
     const ambientStats = generationReport.ambient.stats;
+    const dialogueStats = generationReport.dialogue?.stats;
     const completeParts: string[] = [`${finalMusicCount} music`];
     if (finalAmbientCount > 0 || ambientStats.failed > 0) {
       completeParts.push(`${finalAmbientCount} ambient`);
@@ -618,9 +870,12 @@ export async function runPipeline(config: PipelineConfig): Promise<void> {
     if (finalSfxCount > 0 || sfxStats.failed > 0) {
       completeParts.push(`${finalSfxCount} SFX`);
     }
+    if (finalDialogueCount > 0 || (dialogueStats?.failed ?? 0) > 0) {
+      completeParts.push(`${finalDialogueCount} dialogue`);
+    }
     let completeMsg = `Sound design complete! ${completeParts.join(' + ')} tracks.`;
     const allFallback = sfxStats.fallback + ambientStats.fallback;
-    const allFailed = sfxStats.failed + ambientStats.failed;
+    const allFailed = sfxStats.failed + ambientStats.failed + (dialogueStats?.failed ?? 0);
     if (allFallback > 0) completeMsg += ` ${allFallback} recovered via fallback.`;
     if (allFailed > 0) completeMsg += ` ${allFailed} failed.`;
     emit(jobId, {

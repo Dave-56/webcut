@@ -33,6 +33,8 @@ const prompt = ref(
 );
 const useExistingAudio = ref(props.initialOptions?.useExistingAudio ?? false);
 const includeSfx = ref(props.initialOptions?.includeSfx !== false);
+const includeDialogue = ref(props.initialOptions?.includeDialogue ?? false);
+const dialogueScript = ref(props.initialOptions?.dialogueScript ?? '');
 const contentType = ref<ContentType | undefined>(props.initialOptions?.contentType);
 
 const formattedDuration = computed(() => {
@@ -59,6 +61,12 @@ function handleSubmit() {
   }
   if (contentType.value) {
     options.contentType = contentType.value;
+  }
+  if (includeDialogue.value) {
+    options.includeDialogue = true;
+    if (dialogueScript.value.trim()) {
+      options.dialogueScript = dialogueScript.value.trim();
+    }
   }
   emit('submit', options);
 }
@@ -125,6 +133,29 @@ function handleSubmit() {
           <Label for="include-sfx" class="text-xs">Include sound effects</Label>
           <p class="text-[11px] text-muted-foreground m-0">Ambient sounds and foley (rain, footsteps, door slams, etc.)</p>
         </div>
+      </div>
+
+      <div class="flex items-start gap-2">
+        <Checkbox
+          id="include-dialogue"
+          :model-value="includeDialogue"
+          @update:model-value="(v) => includeDialogue = v === true"
+        />
+        <div class="space-y-0.5">
+          <Label for="include-dialogue" class="text-xs">Include dialogue / narration</Label>
+          <p class="text-[11px] text-muted-foreground m-0">AI-generated voiceover based on the scene. Works best on videos without existing speech.</p>
+        </div>
+      </div>
+
+      <div v-if="includeDialogue" class="flex flex-col gap-1.5 pl-6">
+        <Label class="text-xs text-muted-foreground">Script (optional)</Label>
+        <Textarea
+          v-model="dialogueScript"
+          class="min-h-[60px] text-sm"
+          :maxlength="2000"
+          placeholder="e.g.,&#10;Narrator: The journey begins at dawn.&#10;Character 1: We have to hurry."
+        />
+        <p class="m-0 text-[10px] text-muted-foreground">Leave blank for AI-written dialogue based on the scene.</p>
       </div>
     </div>
 

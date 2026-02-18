@@ -193,14 +193,44 @@ export async function adjustAudioTempo(
   });
 }
 
+/**
+ * Adjust audio speed by a given factor, modifying the file in-place.
+ * Factor > 1 speeds up (shorter), factor < 1 slows down (longer).
+ * Clamped to 0.85–1.15 range for speech quality.
+ * Uses ffmpeg atempo filter.
+ */
+export async function adjustAudioSpeed(
+  filePath: string,
+  speedFactor: number,
+): Promise<void> {
+  const clampedFactor = Math.max(0.85, Math.min(1.15, speedFactor));
+  if (Math.abs(clampedFactor - 1.0) < 0.01) return; // No meaningful change
+
+  const tempPath = filePath.replace(/(\.\w+)$/, '_speed$1');
+
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg(filePath)
+      .audioFilter(`atempo=${clampedFactor}`)
+      .output(tempPath)
+      .on('end', () => resolve())
+      .on('error', (err) => reject(err))
+      .run();
+  });
+
+  // Replace original with speed-adjusted version
+  const fsp = await import('fs/promises');
+  await fsp.rename(tempPath, filePath);
+}
+
 // ─── EBU R128 Loudness Normalization ───
 
 /** LUFS targets per track type — calibrated for multi-track mixing. */
-export const LOUDNORM_TARGETS = {
-  music:   -24,  // bed level, sits under dialogue
-  ambient: -28,  // felt not heard; volume tables provide the rest
-  sfx:     -18,  // punchy, present; scene-context ducking handles the mix
-} as const;
+export const LOUDNORM_TARGETS: Record<string, number> = {
+  music:    -24,  // bed level, sits under dialogue
+  ambient:  -28,  // felt not heard; volume tables provide the rest
+  sfx:      -18,  // punchy, present; scene-context ducking handles the mix
+  dialogue: -20,  // clear speech, above music but no double-boost
+};
 
 /** True-peak ceiling: -2 dBTP leaves headroom for multi-track summing. */
 export const TRUE_PEAK_DBTP = -2.0;
