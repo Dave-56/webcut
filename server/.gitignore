@@ -1,6 +1,6 @@
 .env
 node_modules/
 data/
-dist/
+dist/*
 !dist/.gitkeep
 uploads/

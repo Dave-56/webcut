@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+!server/dist
+!server/dist/.gitkeep
 *.local
 /esm
 /webcomponents
