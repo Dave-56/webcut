@@ -1,0 +1,11 @@
+# Railway/Nixpacks: install ffmpeg for video/audio processing
+[phases.setup]
+nixPkgs = ["ffmpeg"]
+
+# No TS build step — we run with tsx from source. Create dist so the
+# builder’s copy step (which expects /app/dist) doesn’t fail.
+[phases.build]
+cmds = ["mkdir -p dist"]
+
+[start]
+cmd = "npx tsx src/index.ts"
