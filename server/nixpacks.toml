@@ -2,8 +2,11 @@
 [phases.setup]
 nixPkgs = ["ffmpeg"]
 
-# No TS build step — we run with tsx from source. Create dist so the
-# builder’s copy step (which expects /app/dist) doesn’t fail.
+# Create dist early so any step that checksums/copies /app/dist sees it.
+# We run from source with tsx; dist stays empty.
+[phases.install]
+cmds = ["mkdir -p dist", "..."]
+
 [phases.build]
 cmds = ["mkdir -p dist"]
 
