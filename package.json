@@ -26,6 +26,7 @@
     "build:esm": "vite build",
     "build:webcomponents": "cross-env BUILD_TYPE=webcomponents vite build",
     "build:webcomponents_bundle": "cross-env BUILD_TYPE=webcomponents_bundle vite build",
+    "build:app": "vite build --config vite.app.config.ts",
     "typecheck": "vue-tsc --noEmit",
     "dev:server": "cd server && pnpm tsx watch src/index.ts",
     "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:server\"",
