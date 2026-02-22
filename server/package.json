@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "build": "mkdir -p dist",
     "start": "tsx src/index.ts"
   },
   "dependencies": {
