@@ -161,7 +161,7 @@ export interface AnalyzeResponse {
   jobId: string;
 }
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
 /**
  * Upload a video file for AI sound design analysis.
